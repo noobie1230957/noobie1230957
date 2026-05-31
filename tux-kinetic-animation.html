@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TUX S&D + KINETIC — Cinematic Animation</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050508;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'Courier New',monospace;overflow:hidden}
+canvas{display:block}
+#wrap{position:relative;border-radius:8px;overflow:hidden;box-shadow:0 0 60px rgba(124,58,237,.25),0 0 120px rgba(124,58,237,.1)}
+#ui{position:absolute;inset:0;pointer-events:none}
+#playOverlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(5,5,14,.75);cursor:pointer;pointer-events:all;backdrop-filter:blur(4px);transition:opacity .4s}
+#playOverlay.hidden{opacity:0;pointer-events:none}
+#playBtn{width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,rgba(124,58,237,.4),rgba(190,24,93,.4));border:2px solid rgba(168,85,247,.6);display:flex;align-items:center;justify-content:center;box-shadow:0 0 24px rgba(124,58,237,.5),0 0 48px rgba(124,58,237,.15);transition:transform .15s}
+#playBtn:hover{transform:scale(1.08)}
+#playTitle{font-size:28px;font-weight:900;background:linear-gradient(90deg,#a855f7,#be185d);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.12em;margin-bottom:8px}
+#playSub{color:rgba(167,139,250,.6);font-size:11px;letter-spacing:.25em;margin-bottom:28px}
+#playHint{margin-top:14px;color:rgba(167,139,250,.45);font-size:9px;letter-spacing:.2em}
+#progressBar{position:absolute;bottom:18px;left:0;height:2px;width:0%;background:linear-gradient(90deg,#7c3aed,#be185d);box-shadow:0 0 6px rgba(124,58,237,.7);transition:width 0s linear;z-index:10}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="ui">
+    <div id="progressBar"></div>
+    <div id="playOverlay">
+      <div id="playTitle">TUX S&amp;D + KINETIC</div>
+      <div id="playSub">CINEMATIC CHART ANIMATION</div>
+      <div id="playBtn">
+        <svg width="22" height="26" viewBox="0 0 22 26"><polygon points="2,1 21,13 2,25" fill="#e9d5ff"/></svg>
+      </div>
+      <div id="playHint">CLICK TO PLAY</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════
+const W = 960, H = 540;
+const CHART = { x: 60, y: 32, w: 820, h: 460, priceMin: 43, priceMax: 73 };
+const TOTAL_DUR = 24000; // ms
+
+function px(price) {
+  const r = CHART.priceMax - CHART.priceMin;
+  return CHART.y + CHART.h * (1 - (price - CHART.priceMin) / r);
+}
+function cx(i, total) {
+  return CHART.x + (i / (total - 1)) * CHART.w;
+}
+
+// Candles: { o, h, l, c, scene }
+const CANDLES = [
+  {o:65.2,h:66.1,l:63.8,c:64.0,s:1},{o:64.0,h:64.5,l:62.2,c:62.5,s:1},
+  {o:62.5,h:63.0,l:60.5,c:60.8,s:1},{o:60.8,h:61.2,l:58.8,c:59.1,s:1},
+  {o:59.1,h:59.8,l:57.2,c:57.5,s:1},{o:57.5,h:58.1,l:55.5,c:55.8,s:1},
+  {o:55.8,h:56.2,l:53.5,c:53.8,s:1},{o:53.8,h:54.3,l:51.8,c:52.0,s:1},
+  {o:52.0,h:52.4,l:50.1,c:50.3,s:2},{o:50.3,h:50.8,l:48.8,c:49.2,s:2},
+  {o:49.2,h:49.9,l:48.5,c:49.0,s:2},{o:49.0,h:49.7,l:48.4,c:49.3,s:2},
+  {o:49.3,h:50.8,l:49.0,c:50.5,s:3},{o:50.5,h:52.5,l:50.3,c:52.2,s:3},
+  {o:52.2,h:54.0,l:52.0,c:53.8,s:3},{o:53.8,h:55.5,l:53.5,c:55.2,s:3},
+  {o:55.2,h:57.3,l:55.0,c:57.0,s:4},{o:57.0,h:59.5,l:56.8,c:59.2,s:4},
+  {o:59.2,h:61.5,l:59.0,c:61.3,s:4},{o:61.3,h:63.5,l:61.1,c:63.2,s:4},
+  {o:63.2,h:65.5,l:63.0,c:65.3,s:4},{o:65.3,h:67.2,l:65.1,c:67.0,s:5},
+  {o:67.0,h:68.5,l:66.8,c:68.1,s:5},{o:68.1,h:68.9,l:67.5,c:68.3,s:5},
+  {o:68.3,h:68.8,l:65.5,c:65.8,s:6},{o:65.8,h:66.2,l:63.0,c:63.3,s:6},
+  {o:63.3,h:63.8,l:61.0,c:61.2,s:6}
+];
+const N = CANDLES.length;
+
+const KINETIC = [
+  67.0,66.5,65.2,63.8,62.0,60.5,58.5,56.5,
+  54.8,53.0,51.8,51.2,
+  49.0,49.5,50.8,52.5,
+  54.0,56.2,58.5,60.8,63.0,
+  65.0,66.5,67.2,
+  66.0,64.0,62.0
+];
+
+const SCENE_BREAKS = [0,8,12,16,21,24,N];
+
+// ═══════════════════════════════════════════════
+//  CANVAS SETUP
+// ═══════════════════════════════════════════════
+const wrap = document.getElementById('wrap');
+const canvas = document.getElementById('c');
+canvas.width = W; canvas.height = H;
+wrap.style.width = W+'px'; wrap.style.height = H+'px';
+const ctx = canvas.getContext('2d');
+
+// ═══════════════════════════════════════════════
+//  PARTICLES
+// ═══════════════════════════════════════════════
+const PARTICLES = Array.from({length:55},()=>({
+  x: Math.random()*W, y: Math.random()*H,
+  vx:(Math.random()-.5)*.28, vy:(Math.random()-.5)*.28,
+  r: Math.random()*1.4+.3,
+  a: Math.random()*.35+.04,
+  col: Math.random()>.5?'#7c3aed':'#be185d'
+}));
+
+// ═══════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════
+let startTime = null;
+let elapsed = 0;
+let running = false;
+let candleAnims = []; // per-candle scale progress 0→1
+
+// initialise candle animations
+for(let i=0;i<N;i++) candleAnims.push(0);
+
+function getScene(ci){
+  for(let i=SCENE_BREAKS.length-1;i>=1;i--)
+    if(ci>=SCENE_BREAKS[i-1]) return Math.min(6,i);
+  return 1;
+}
+
+// ═══════════════════════════════════════════════
+//  DRAW HELPERS
+// ═══════════════════════════════════════════════
+function glow(color, blur=8){
+  ctx.shadowColor=color; ctx.shadowBlur=blur;
+}
+function noGlow(){ ctx.shadowBlur=0; ctx.shadowColor='transparent'; }
+
+function drawBg(){
+  // Base
+  const bg=ctx.createLinearGradient(0,0,W,H);
+  bg.addColorStop(0,'#0a0812'); bg.addColorStop(.5,'#06050e'); bg.addColorStop(1,'#0a0510');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  // Grid lines
+  [46,50,54,58,62,66,70].forEach(p=>{
+    const y=px(p);
+    ctx.beginPath(); ctx.moveTo(CHART.x,y); ctx.lineTo(CHART.x+CHART.w,y);
+    ctx.strokeStyle='rgba(255,255,255,0.035)'; ctx.lineWidth=1; ctx.stroke();
+    // Price labels
+    ctx.fillStyle='rgba(167,139,250,.45)'; ctx.font='10px monospace';
+    ctx.fillText(p, CHART.x+CHART.w+8, y+3.5);
+  });
+}
+
+function drawParticles(){
+  PARTICLES.forEach(p=>{
+    p.x+=p.vx; p.y+=p.vy;
+    if(p.x<0)p.x=W; if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H; if(p.y>H)p.y=0;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fillStyle=p.col; ctx.globalAlpha=p.a; ctx.fill();
+  });
+  ctx.globalAlpha=1;
+}
+
+function drawPowerZone(price, type, active, glowing){
+  if(!active) return;
+  const y=px(price); const pad=5;
+  const color = type==='long'?'#22c55e':'#ef4444';
+  const top = type==='long'?y:y-pad, bot = type==='long'?y+pad:y;
+  // Fill
+  const grad=ctx.createLinearGradient(CHART.x,0,CHART.x+CHART.w,0);
+  grad.addColorStop(0, color+(glowing?'38':'1a'));
+  grad.addColorStop(1, color+'06');
+  ctx.fillStyle=grad;
+  ctx.fillRect(CHART.x,top,CHART.w,bot-top);
+  // Border line
+  ctx.beginPath(); ctx.moveTo(CHART.x,y); ctx.lineTo(CHART.x+CHART.w,y);
+  ctx.strokeStyle=color; ctx.lineWidth=glowing?1.8:0.9;
+  if(type==='long'){ctx.setLineDash([7,3]);}else{ctx.setLineDash([]);}
+  if(glowing){glow(color,10);}
+  ctx.stroke(); ctx.setLineDash([]); noGlow();
+  // Label
+  ctx.fillStyle=color; ctx.font='bold 9px monospace';
+  ctx.fillText((type==='long'?'LONG POWER  ':'SHORT POWER  ')+price, CHART.x+10, y-6);
+  // Price axis label
+  ctx.fillStyle=color; ctx.font='bold 9px monospace';
+  ctx.fillText(price, CHART.x+CHART.w+8, y+3.5);
+}
+
+function drawSDBox(x1,x2,topP,botP,bull,visible){
+  if(!visible) return;
+  const y1=px(topP), y2=px(botP);
+  const color=bull?'#22c55e':'#ef4444';
+  ctx.fillStyle=color+'18'; ctx.fillRect(x1,y1,x2-x1,y2-y1);
+  ctx.strokeStyle=color; ctx.lineWidth=0.9; ctx.globalAlpha=0.6;
+  ctx.setLineDash([3,2]); ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+  ctx.setLineDash([]); ctx.globalAlpha=1;
+}
+
+function drawCandle(c, i, scaleY){
+  if(scaleY<=0) return;
+  const x=cx(i,N);
+  const cw=Math.max(5,(CHART.w/(N-1))*.52);
+  const bull=c.c>=c.o;
+  const fill=bull?'#22c55e':'#ef4444';
+  const bodyTop=px(Math.max(c.o,c.c)), bodyBot=px(Math.min(c.o,c.c));
+  const bodyH=Math.max(1.5,bodyBot-bodyTop);
+  const wickTop=px(c.h), wickBot=px(c.l);
+  const midY=(bodyTop+bodyBot)/2;
+
+  ctx.save();
+  ctx.translate(x,midY);
+  ctx.scale(1,scaleY);
+  ctx.translate(-x,-midY);
+
+  // Wick
+  ctx.beginPath(); ctx.moveTo(x,wickTop); ctx.lineTo(x,wickBot);
+  ctx.strokeStyle=fill; ctx.lineWidth=1; ctx.globalAlpha=0.7; ctx.stroke();
+  // Body
+  ctx.globalAlpha=1;
+  glow(bull?'rgba(34,197,94,.4)':'rgba(239,68,68,.4)',5);
+  ctx.fillStyle=fill;
+  ctx.beginPath();
+  ctx.roundRect(x-cw/2,bodyTop,cw,bodyH,1);
+  ctx.fill(); noGlow();
+  ctx.restore();
+}
+
+function drawKinetic(visibleCount, t){
+  if(visibleCount<2) return;
+  // Determine if bearish (above price) or bullish phase
+  const scene=getScene(visibleCount-1);
+  const color='#a855f7';
+
+  // Build path up to visibleCount with a slight draw-on effect for the last segment
+  ctx.beginPath();
+  for(let i=0;i<visibleCount;i++){
+    const x=cx(i,N), y=px(KINETIC[i]);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  // Glow
+  ctx.strokeStyle=color; ctx.lineWidth=5; ctx.globalAlpha=0.15;
+  ctx.shadowColor=color; ctx.shadowBlur=12; ctx.stroke();
+  // Main dashed
+  ctx.globalAlpha=1; ctx.lineWidth=1.8; ctx.shadowBlur=4;
+  ctx.setLineDash([5,3]); ctx.stroke();
+  ctx.setLineDash([]); noGlow();
+
+  // Leading dot
+  const lx=cx(visibleCount-1,N), ly=px(KINETIC[visibleCount-1]);
+  const pulse=.5+.5*Math.sin(t*4);
+  ctx.beginPath(); ctx.arc(lx,ly,3+pulse*1.5,0,Math.PI*2);
+  ctx.fillStyle=color; ctx.globalAlpha=0.9+pulse*.1;
+  glow(color,8); ctx.fill(); noGlow(); ctx.globalAlpha=1;
+
+  // Label near leading dot
+  ctx.fillStyle=color; ctx.font='bold 8px monospace';
+  ctx.fillText('KINETIC STOP', lx+8, ly-4);
+}
+
+function drawSignal(type, ci, t){
+  const x=cx(ci,N);
+  const c=CANDLES[ci];
+  const isBuy=type==='BUY';
+  const color=isBuy?'#22c55e':'#ef4444';
+  const signalY=isBuy?px(c.l)+8:px(c.h)-8;
+  const arrowTip=isBuy?signalY+6:signalY-6;
+  const labelY=isBuy?signalY+22:signalY-22;
+
+  const pulse=.85+.15*Math.sin(t*3);
+  ctx.globalAlpha=pulse;
+
+  // Arrow
+  ctx.beginPath();
+  if(isBuy){
+    ctx.moveTo(x,arrowTip-2); ctx.lineTo(x-6,arrowTip-14); ctx.lineTo(x+6,arrowTip-14);
+  } else {
+    ctx.moveTo(x,arrowTip+2); ctx.lineTo(x-6,arrowTip+14); ctx.lineTo(x+6,arrowTip+14);
+  }
+  ctx.closePath(); ctx.fillStyle=color; glow(color,8); ctx.fill(); noGlow();
+
+  // Box
+  ctx.fillStyle=color+'28';
+  ctx.strokeStyle=color; ctx.lineWidth=0.8;
+  ctx.beginPath(); ctx.roundRect(x-16,labelY-10,32,14,3); ctx.fill(); ctx.stroke();
+
+  // Text
+  ctx.fillStyle=color; ctx.font='bold 9px monospace';
+  ctx.textAlign='center'; ctx.fillText(type,x,labelY+1); ctx.textAlign='left';
+  ctx.globalAlpha=1;
+}
+
+function drawProjection(fromIndex, t){
+  const pts=[
+    {x:cx(fromIndex,N),y:px(55.2)},{x:cx(fromIndex+1,N),y:px(57.5)},
+    {x:cx(fromIndex+2,N),y:px(60.5)},{x:cx(fromIndex+3,N),y:px(63.5)},
+    {x:cx(fromIndex+4,N),y:px(66.0)},{x:cx(fromIndex+5,N),y:px(68.0)},
+  ];
+  const progress=Math.min(1,(t-12)/4); // animates over 4s from scene 4
+  const totalLen=pts.length-1;
+  const drawn=progress*totalLen;
+
+  ctx.save();
+  ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.6; ctx.setLineDash([6,4]);
+  glow('#f59e0b',8);
+  ctx.beginPath();
+  for(let i=0;i<pts.length;i++){
+    if(i>drawn) break;
+    if(i===0) ctx.moveTo(pts[i].x,pts[i].y);
+    else {
+      const frac=Math.min(1,drawn-i+1);
+      const prevX=pts[i-1].x, prevY=pts[i-1].y;
+      const x=prevX+(pts[i].x-prevX)*frac;
+      const y=prevY+(pts[i].y-prevY)*frac;
+      ctx.lineTo(x,y);
+    }
+  }
+  ctx.stroke(); ctx.setLineDash([]); noGlow();
+  // Dots
+  pts.forEach((p,i)=>{
+    if(i/totalLen>progress) return;
+    ctx.beginPath(); ctx.arc(p.x,p.y,2.5,0,Math.PI*2);
+    ctx.fillStyle='#f59e0b'; ctx.globalAlpha=0.8; ctx.fill(); ctx.globalAlpha=1;
+  });
+  ctx.restore();
+}
+
+function drawTopBar(ci, scene){
+  const c=CANDLES[Math.max(0,ci)];
+  const price=c.c.toFixed(2);
+  const bull=c.c>=c.o;
+  const change=((c.c-c.o)/c.o*100).toFixed(2);
+  const pColor=bull?'#22c55e':'#ef4444';
+
+  const bar=ctx.createLinearGradient(0,0,W,0);
+  bar.addColorStop(0,'rgba(10,5,25,.97)'); bar.addColorStop(1,'rgba(20,5,35,.95)');
+  ctx.fillStyle=bar; ctx.fillRect(0,0,W,32);
+  ctx.strokeStyle='rgba(124,58,237,.2)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(0,32); ctx.lineTo(W,32); ctx.stroke();
+
+  // Logo box
+  const lg=ctx.createLinearGradient(14,8,34,24);
+  lg.addColorStop(0,'#7c3aed'); lg.addColorStop(1,'#be185d');
+  ctx.fillStyle=lg;
+  ctx.beginPath(); ctx.roundRect(14,8,20,18,4); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 10px monospace'; ctx.textAlign='center';
+  ctx.fillText('T',24,20); ctx.textAlign='left';
+
+  ctx.fillStyle='#e9d5ff'; ctx.font='bold 10px monospace';
+  ctx.fillText('TUX S&D + KINETIC',40,20);
+
+  ctx.strokeStyle='rgba(124,58,237,.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(195,10); ctx.lineTo(195,24); ctx.stroke();
+
+  ctx.fillStyle='#a78bfa'; ctx.font='600 10px monospace';
+  ctx.fillText('CRYPTO / 1H',205,20);
+
+  ctx.beginPath(); ctx.moveTo(305,10); ctx.lineTo(305,24); ctx.stroke();
+
+  glow(pColor,6); ctx.fillStyle=pColor; ctx.font='bold 13px monospace';
+  ctx.fillText(price,315,21); noGlow();
+
+  ctx.fillStyle=pColor; ctx.font='9px monospace';
+  ctx.fillText((bull?'▲':'▼')+' '+Math.abs(change)+'%', 368,21);
+
+  // Scene
+  ctx.fillStyle='rgba(167,139,250,.45)'; ctx.font='8.5px monospace';
+  ctx.textAlign='right'; ctx.fillText('SCENE '+scene+'/6', W-50,20); ctx.textAlign='left';
+
+  // Live dot
+  const live=.5+.5*Math.sin(Date.now()*.004);
+  ctx.beginPath(); ctx.arc(W-32,16,3.5,0,Math.PI*2);
+  glow('#22c55e',6); ctx.fillStyle='#22c55e'; ctx.globalAlpha=.6+live*.4; ctx.fill();
+  ctx.globalAlpha=1; noGlow();
+  ctx.fillStyle='#22c55e'; ctx.font='8px monospace';
+  ctx.fillText('LIVE',W-25,19);
+}
+
+function drawDashboard(scene, ci){
+  const bull = scene>=3&&scene<=5;
+  const bear = scene===1||scene===6;
+  const trend = bull?'BULLISH':bear?'BEARISH':'NEUTRAL';
+  const tColor = bull?'#22c55e':bear?'#ef4444':'#f59e0b';
+  const score = bull?Math.min(85,55+(ci-12)*4):bear?Math.max(15,70-ci*3):40;
+  const rsi = ci<=11?Math.max(22,58-ci*4):ci<=20?Math.min(72,28+(ci-12)*5):65;
+  const rsiLabel = rsi<30?'OVERSOLD':rsi>70?'OVERBOUGHT':'NEUTRAL';
+  const rsiColor = rsi<30?'#22c55e':rsi>70?'#ef4444':'#f59e0b';
+  const revPct = scene>=5?Math.min(78,45+(ci-21)*11)+'%':scene>=3?Math.min(45,(ci-12)*5)+'%':'—';
+  const resist = scene>=5?'DETECTED':'—';
+  const resistColor = scene>=5?'#ef4444':'#6b7280';
+
+  const DX=14, DY=H-150, DW=198, DH=136;
+  // Panel
+  ctx.fillStyle='rgba(10,10,20,.92)';
+  ctx.strokeStyle='rgba(124,58,237,.35)';
+  ctx.lineWidth=1;
+  ctx.beginPath(); ctx.roundRect(DX,DY,DW,DH,6); ctx.fill(); ctx.stroke();
+  // Header
+  const hg=ctx.createLinearGradient(DX,DY,DX+DW,DY);
+  hg.addColorStop(0,'rgba(124,58,237,.5)'); hg.addColorStop(1,'rgba(190,24,93,.3)');
+  ctx.fillStyle=hg;
+  ctx.beginPath(); ctx.roundRect(DX,DY,DW,22,{upperLeft:6,upperRight:6,lowerLeft:0,lowerRight:0}); ctx.fill();
+
+  // Status dot
+  const dotPulse=.5+.5*Math.sin(Date.now()*.003);
+  ctx.beginPath(); ctx.arc(DX+10,DY+11,3,0,Math.PI*2);
+  glow(tColor,8); ctx.fillStyle=tColor; ctx.globalAlpha=.7+dotPulse*.3; ctx.fill();
+  ctx.globalAlpha=1; noGlow();
+
+  ctx.fillStyle='#e9d5ff'; ctx.font='bold 9px monospace';
+  ctx.fillText('TUX S&D + KINETIC', DX+18, DY+14);
+
+  const rows=[
+    ['Trend', trend, tColor],
+    ['Signal Score', Math.round(score)+'/100', score>60?'#22c55e':score<40?'#ef4444':'#f59e0b'],
+    ['RSI', Math.round(rsi)+' — '+rsiLabel, rsiColor],
+    ['Reversal %', revPct, '#a78bfa'],
+    ['Resistance', resist, resistColor],
+  ];
+  rows.forEach(([label,val,col],ri)=>{
+    const ry=DY+30+ri*19;
+    ctx.strokeStyle='rgba(124,58,237,.1)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(DX+4,ry-1); ctx.lineTo(DX+DW-4,ry-1); ctx.stroke();
+    ctx.fillStyle='#a78bfa'; ctx.font='8.5px monospace';
+    ctx.fillText(label.toUpperCase(), DX+8, ry+10);
+    ctx.fillStyle=col; ctx.font='bold 9.5px monospace';
+    ctx.textAlign='right'; ctx.fillText(val, DX+DW-8, ry+10); ctx.textAlign='left';
+  });
+
+  // Score bar
+  const bY=DY+DH-8;
+  ctx.fillStyle='rgba(255,255,255,.05)';
+  ctx.beginPath(); ctx.roundRect(DX+8,bY-4,DW-16,3,2); ctx.fill();
+  const bW=Math.max(0,Math.min(1,score/100))*(DW-16);
+  const bg2=ctx.createLinearGradient(DX+8,0,DX+8+bW,0);
+  bg2.addColorStop(0,tColor+'88'); bg2.addColorStop(1,tColor);
+  ctx.fillStyle=bg2;
+  ctx.beginPath(); ctx.roundRect(DX+8,bY-4,bW,3,2); ctx.fill();
+}
+
+function drawSceneLabel(scene, t){
+  const labels={
+    1:{title:'BEARISH TREND',sub:'Kinetic Stop trailing above price',color:'#ef4444'},
+    2:{title:'LONG POWER LEVEL',sub:'Price at 49 — RSI Oversold',color:'#22c55e'},
+    3:{title:'BUY SIGNAL CONFIRMED',sub:'Kinetic Stop flips below price',color:'#22c55e'},
+    4:{title:'RALLY IN PROGRESS',sub:'Target projection activated',color:'#f59e0b'},
+    5:{title:'SHORT POWER LEVEL',sub:'Resistance detected at 68',color:'#ef4444'},
+    6:{title:'SELL SIGNAL',sub:'Rejection from Short Power Level',color:'#be185d'},
+  };
+  const info=labels[scene]; if(!info) return;
+  const labelW=260, labelH=36, lx=W/2-labelW/2, ly=38;
+  ctx.fillStyle='rgba(10,10,20,.85)';
+  ctx.strokeStyle=info.color+'66'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.roundRect(lx,ly,labelW,labelH,6); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=info.color; ctx.font='bold 11px monospace';
+  ctx.textAlign='center'; ctx.fillText(info.title, W/2, ly+14);
+  ctx.fillStyle='rgba(200,180,255,.65)'; ctx.font='8.5px monospace';
+  ctx.fillText(info.sub, W/2, ly+27); ctx.textAlign='left';
+}
+
+function drawBranding(){
+  ctx.fillStyle='rgba(124,58,237,.12)';
+  ctx.fillRect(0,H-18,W,18);
+  ctx.strokeStyle='rgba(124,58,237,.2)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(0,H-18); ctx.lineTo(W,H-18); ctx.stroke();
+  ctx.fillStyle='rgba(167,139,250,.55)'; ctx.font='7.5px monospace';
+  ctx.textAlign='center';
+  ctx.fillText('TUX S&D + KINETIC INDICATOR  ·  Supply & Demand  ·  Kinetic Trailing Stop  ·  Power Levels',W/2,H-5);
+  ctx.textAlign='left';
+}
+
+function drawCornerBrackets(){
+  const s=14, off=36;
+  ctx.strokeStyle='rgba(124,58,237,.45)'; ctx.lineWidth=1;
+  // TL
+  ctx.beginPath(); ctx.moveTo(0,off+s); ctx.lineTo(0,off); ctx.lineTo(s,off); ctx.stroke();
+  // TR
+  ctx.beginPath(); ctx.moveTo(W-s,off); ctx.lineTo(W,off); ctx.lineTo(W,off+s); ctx.stroke();
+  // BL
+  ctx.beginPath(); ctx.moveTo(0,H-s-18); ctx.lineTo(0,H-18); ctx.lineTo(s,H-18); ctx.stroke();
+  // BR
+  ctx.beginPath(); ctx.moveTo(W-s,H-18); ctx.lineTo(W,H-18); ctx.lineTo(W,H-s-18); ctx.stroke();
+}
+
+function drawScanLine(t){
+  const y=((t*.08)%1)*H;
+  const sg=ctx.createLinearGradient(0,y-1,W,y+1);
+  sg.addColorStop(0,'transparent'); sg.addColorStop(.5,'rgba(124,58,237,.12)'); sg.addColorStop(1,'transparent');
+  ctx.fillStyle=sg; ctx.fillRect(0,y-1,W,2);
+}
+
+function drawAmbientGlow(scene, t){
+  const colors={1:'rgba(239,68,68,.06)',2:'rgba(34,197,94,.07)',3:'rgba(34,197,94,.09)',
+                 4:'rgba(245,158,11,.07)',5:'rgba(239,68,68,.08)',6:'rgba(190,24,93,.1)'};
+  const col=colors[scene]||'transparent';
+  const rg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*.6);
+  rg.addColorStop(0,col); rg.addColorStop(1,'transparent');
+  ctx.fillStyle=rg; ctx.globalAlpha=1; ctx.fillRect(0,0,W,H);
+}
+
+// ═══════════════════════════════════════════════
+//  MAIN RENDER LOOP
+// ═══════════════════════════════════════════════
+function render(ts){
+  if(!running) return;
+  const now=performance.now();
+  elapsed=Math.min(now-startTime, TOTAL_DUR);
+  const t=elapsed/1000; // seconds
+  const prog=elapsed/TOTAL_DUR;
+  const candleIndex=Math.floor(prog*(N-1));
+  const scene=getScene(candleIndex);
+
+  // Advance candle animations
+  for(let i=0;i<=candleIndex;i++){
+    if(candleAnims[i]<1) candleAnims[i]=Math.min(1,candleAnims[i]+0.06);
+  }
+
+  // ── Draw ──
+  drawBg();
+  drawAmbientGlow(scene,t);
+  drawParticles();
+  drawScanLine(t);
+
+  // S&D boxes
+  drawSDBox(cx(8,N),cx(12,N),50.8,48.4,true,scene>=2);
+  drawSDBox(cx(21,N),cx(24,N),69.0,67.2,false,scene>=5);
+
+  // Power zones
+  drawPowerZone(49,'long',scene>=2,scene===2);
+  drawPowerZone(68,'short',scene>=5,scene>=5&&scene<=6);
+
+  // Projection
+  if(scene===4) drawProjection(15,t);
+
+  // Candles
+  for(let i=0;i<=candleIndex;i++) drawCandle(CANDLES[i],i,candleAnims[i]);
+
+  // Kinetic
+  if(candleIndex>=1) drawKinetic(candleIndex+1,t);
+
+  // Signals
+  if(candleIndex>=7&&scene<=3) drawSignal('SELL',7,t);
+  if(candleIndex>=15&&scene>=3&&scene<=5) drawSignal('BUY',15,t);
+  if(candleIndex>=24&&scene>=6) drawSignal('SELL',24,t);
+
+  // UI layers
+  drawTopBar(candleIndex,scene);
+  drawSceneLabel(scene,t);
+  drawDashboard(scene,candleIndex);
+  drawBranding();
+  drawCornerBrackets();
+
+  // Progress bar
+  document.getElementById('progressBar').style.width=(prog*100)+'%';
+
+  if(elapsed>=TOTAL_DUR){
+    running=false;
+    document.getElementById('playHint').textContent='CLICK TO REPLAY';
+    document.getElementById('playOverlay').classList.remove('hidden');
+    return;
+  }
+  requestAnimationFrame(render);
+}
+
+function startAnim(){
+  for(let i=0;i<N;i++) candleAnims[i]=0;
+  document.getElementById('playOverlay').classList.add('hidden');
+  startTime=performance.now();
+  running=true;
+  requestAnimationFrame(render);
+}
+
+document.getElementById('playOverlay').addEventListener('click',startAnim);
+
+// Draw static first frame
+drawBg();
+drawBranding();
+drawCornerBrackets();
+drawTopBar(0,1);
+</script>
+</body>
+</html>
