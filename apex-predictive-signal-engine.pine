@@ -1,0 +1,566 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+
+// ============================================================================
+//  APEX PREDICTIVE SIGNAL ENGINE  v1.0
+// ----------------------------------------------------------------------------
+//  Multi-layer, early-entry buy/sell signal engine.
+//
+//  Design goals:
+//    - Fire BEFORE major swings by fusing momentum, volatility, trend,
+//      volume, market-structure, liquidity, FVG, mean-reversion, exhaustion
+//      and divergence layers into a single 0-100 confidence score.
+//    - Minimise repainting: every structural read is taken from CONFIRMED
+//      pivots, and an optional "Repaint Protection" mode forces all gating
+//      to bar-close so historical and live behaviour match.
+//    - Work on any symbol class (FX / Indices / Crypto / Commodities /
+//      Stocks) and any timeframe by using only normalised, ratio-based
+//      measures (ATR-relative, percentile-relative, z-score-relative).
+//
+//  NOTE ON SIGNALS: No indicator predicts the future. This tool scores the
+//  *balance of evidence* for an imminent move. Always combine with risk
+//  management. Intrabar (forming-candle) signals can change until the bar
+//  closes unless Repaint Protection is enabled.
+// ============================================================================
+
+indicator("APEX Predictive Signal Engine", shorttitle="APEX", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// ============================================================================
+//  SECTION 0 — INPUT GROUPS
+// ============================================================================
+string G_MODE   = "① Engine Mode"
+string G_CORE   = "② Core Engine Lengths"
+string G_STRUCT = "③ Market Structure"
+string G_FILT   = "④ Filters"
+string G_MTF    = "⑤ Multi-Timeframe"
+string G_SESS   = "⑥ Session & News"
+string G_VIS    = "⑦ Visuals & Dashboard"
+
+// --- Engine mode --------------------------------------------------------------
+modePreset = input.string("Balanced", "Trade Mode", options=["Aggressive", "Balanced", "Conservative"], group=G_MODE, tooltip="Aggressive = earlier, more signals (lower confidence gate, shorter cooldown).\nConservative = fewer, higher-quality signals.\nBalanced = the default middle ground.")
+realtimeSignals = input.bool(true, "Allow intrabar (forming-candle) signals", group=G_MODE, tooltip="ON: high-confidence setups can print while the candle is still forming (most responsive, may repaint).\nOFF: signals are evaluated only on confirmed bar close.")
+repaintProtect  = input.bool(false, "Repaint Protection (force bar-close)", group=G_MODE, tooltip="Forces ALL gating to confirmed bar close so live and historical signals match exactly. Overrides intrabar mode.")
+
+// --- Core lengths -------------------------------------------------------------
+rsiLen     = input.int(14, "RSI / Momentum length", minval=2, group=G_CORE)
+emaFastLen = input.int(9,  "EMA fast", minval=1, group=G_CORE)
+emaMidLen  = input.int(21, "EMA mid",  minval=1, group=G_CORE)
+emaSlowLen = input.int(55, "EMA slow", minval=1, group=G_CORE)
+atrLen     = input.int(14, "ATR length", minval=1, group=G_CORE)
+adxLen     = input.int(14, "ADX/DMI length", minval=1, group=G_CORE)
+volLen     = input.int(20, "Volume average length", minval=1, group=G_CORE)
+bbLen      = input.int(20, "Bollinger basis length", minval=2, group=G_CORE)
+bbMult     = input.float(2.0, "Bollinger deviations", minval=0.1, step=0.1, group=G_CORE)
+
+// --- Market structure ---------------------------------------------------------
+pivotLen   = input.int(5, "Swing pivot strength (bars each side)", minval=1, maxval=50, group=G_STRUCT, tooltip="Higher = larger, more significant swings used for BOS/CHoCH/liquidity.")
+fvgEnabled = input.bool(true, "Detect Fair Value Gaps", group=G_STRUCT)
+fvgShow    = input.bool(true, "Draw FVG boxes", group=G_STRUCT)
+swEnabled  = input.bool(true, "Detect Liquidity Sweeps", group=G_STRUCT)
+showStruct = input.bool(true, "Show BOS / CHoCH labels", group=G_STRUCT)
+
+// --- Filters ------------------------------------------------------------------
+useTrendFilter = input.bool(true,  "Trend strength filter (ADX)", group=G_FILT)
+adxMinTrend    = input.float(18.0, "  Min ADX for trend signals", minval=0, group=G_FILT)
+useChopFilter  = input.bool(true,  "Anti-chop filter", group=G_FILT, tooltip="Suppress signals when price is range-bound / EMAs entangled.")
+useVolFilter   = input.bool(true,  "Volatility filter", group=G_FILT, tooltip="Suppress signals during dead, contracting volatility.")
+useVolumeFilter= input.bool(false, "Require volume confirmation", group=G_FILT, tooltip="Off by default so FX/indices without real volume still work.")
+cooldownBars   = input.int(5, "Signal cooldown (bars)", minval=0, group=G_FILT, tooltip="Minimum bars between two signals of the same direction.")
+
+// --- Multi-timeframe ----------------------------------------------------------
+useMTF   = input.bool(true, "Multi-timeframe confirmation", group=G_MTF)
+mtfTF    = input.timeframe("", "Higher timeframe (blank = auto)", group=G_MTF, tooltip="Blank auto-selects a sensible higher timeframe from the chart timeframe.")
+mtfStrict= input.bool(false, "Strict MTF (block opposing signals)", group=G_MTF, tooltip="ON: a higher-TF down-trend fully blocks BUYs (and vice-versa).\nOFF: HTF only adds/removes confidence points.")
+
+// --- Session & news -----------------------------------------------------------
+useSession = input.bool(false, "Session filter", group=G_SESS)
+sessSpec   = input.session("0000-0000", "Allowed session", group=G_SESS)
+sessTZ     = input.string("America/New_York", "Session timezone", group=G_SESS)
+useNews    = input.bool(false, "High-impact news avoidance", group=G_SESS, tooltip="Blocks signals inside a manual time window around scheduled high-impact news (set the daily window below).")
+newsStart  = input.session("0825-0835", "  News blackout window", group=G_SESS, tooltip="Daily clock window (exchange/selected TZ) to mute signals, e.g. around NFP / CPI / FOMC.")
+newsTZ     = input.string("America/New_York", "  News timezone", group=G_SESS)
+
+// --- Visuals ------------------------------------------------------------------
+showSignals = input.bool(true,  "Show BUY/SELL labels", group=G_VIS)
+showEntries = input.bool(true,  "Show entry markers", group=G_VIS)
+colorBars   = input.bool(true,  "Smart trend bar coloring", group=G_VIS)
+showDash    = input.bool(true,  "Show dashboard", group=G_VIS)
+dashPos     = input.string("Top Right", "Dashboard position", options=["Top Right","Top Left","Bottom Right","Bottom Left","Middle Right"], group=G_VIS)
+dashSize    = input.string("Normal", "Dashboard text size", options=["Tiny","Small","Normal","Large"], group=G_VIS)
+buyConfReq  = input.int(60, "Min confidence for BUY/SELL", minval=1, maxval=100, group=G_VIS)
+strongReq   = input.int(80, "Min confidence for STRONG", minval=1, maxval=100, group=G_VIS)
+
+// ============================================================================
+//  SECTION 1 — MODE PRESETS
+//  Translate the chosen mode into concrete gates so the rest of the engine
+//  reads from a single, consistent set of thresholds.
+// ============================================================================
+isAggro  = modePreset == "Aggressive"
+isConsv  = modePreset == "Conservative"
+
+// Confidence gate, strong gate and cooldown are nudged by the mode preset.
+confGate    = isAggro ? math.max(1, buyConfReq - 12) : isConsv ? math.min(100, buyConfReq + 10) : buyConfReq
+strongGate  = isAggro ? math.max(1, strongReq - 8)  : isConsv ? math.min(100, strongReq + 5)  : strongReq
+cooldownEff = isAggro ? math.max(0, cooldownBars - 2) : isConsv ? cooldownBars + 4 : cooldownBars
+
+// ============================================================================
+//  SECTION 2 — REPAINT / TIMING HELPERS
+//  `confirmOK` is the master gate that decides whether the engine is allowed
+//  to act on the *current* (possibly forming) bar.
+// ============================================================================
+// When Repaint Protection is on, OR intrabar signals are disabled, we only act
+// on confirmed bars. Otherwise we allow live evaluation on the forming bar.
+allowLive  = realtimeSignals and not repaintProtect
+confirmOK  = allowLive ? true : barstate.isconfirmed
+
+// ============================================================================
+//  SECTION 3 — MOMENTUM LAYER
+//  RSI (level + slope), MACD histogram (acceleration) and rate-of-change.
+//  Output: momScore in roughly [-100, +100] and a 0-100 strength meter.
+// ============================================================================
+rsi      = ta.rsi(close, rsiLen)
+rsiSlope = rsi - rsi[2]                                   // momentum of momentum
+
+[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+histRising  = macdHist > macdHist[1]
+histFalling = macdHist < macdHist[1]
+
+roc      = ta.roc(close, rsiLen)                          // % rate of change
+rocSlope = roc - roc[1]
+
+// Normalise each momentum sub-signal to [-1, +1].
+mRsi   = (rsi - 50) / 50                                  // -1..+1 around midline
+mRsiSl = math.max(-1.0, math.min(1.0, rsiSlope / 10.0))  // slope, clamped
+mHist  = math.max(-1.0, math.min(1.0, macdHist / (ta.atr(atrLen) == 0 ? 1 : ta.atr(atrLen))))
+mRoc   = math.max(-1.0, math.min(1.0, roc / 5.0))
+
+momScore = (mRsi * 30 + mRsiSl * 25 + mHist * 25 + mRoc * 20)   // -100..+100
+momStrength = math.round(math.abs(momScore))                    // 0..100 meter
+
+momUp   = momScore > 0 and rsiSlope > 0 and histRising
+momDn   = momScore < 0 and rsiSlope < 0 and histFalling
+
+// ============================================================================
+//  SECTION 4 — VOLATILITY LAYER
+//  ATR percentile + Bollinger bandwidth to classify regime and detect
+//  expansion (the fuel behind major swings).
+// ============================================================================
+atr      = ta.atr(atrLen)
+atrPct   = atr / close * 100.0
+// Percentile rank of current ATR over a long window => regime independent of symbol.
+atrRank  = ta.percentrank(atr, 100)
+
+basis    = ta.sma(close, bbLen)
+dev      = bbMult * ta.stdev(close, bbLen)
+bbUpper  = basis + dev
+bbLower  = basis - dev
+bbWidth  = (bbUpper - bbLower) / (basis == 0 ? 1 : basis)
+bbWidthAvg = ta.sma(bbWidth, bbLen)
+
+volExpanding   = bbWidth > bbWidthAvg and atr > atr[1]
+volContracting = bbWidth < bbWidthAvg and atr < atr[1]
+volState = atrRank >= 75 ? "High" : atrRank >= 40 ? "Normal" : "Low"
+
+// Squeeze: contracted bands often precede expansion / a swing.
+squeezeOn = bbWidth < ta.lowest(bbWidth, 50) * 1.15
+
+// ============================================================================
+//  SECTION 5 — TREND LAYER
+//  EMA stack + slope + ADX/DMI directional strength.
+// ============================================================================
+emaFast = ta.ema(close, emaFastLen)
+emaMid  = ta.ema(close, emaMidLen)
+emaSlow = ta.ema(close, emaSlowLen)
+
+emaStackUp = emaFast > emaMid and emaMid > emaSlow
+emaStackDn = emaFast < emaMid and emaMid < emaSlow
+emaSlopeUp = emaMid > emaMid[2]
+emaSlopeDn = emaMid < emaMid[2]
+
+[diPlus, diMinus, adx] = ta.dmi(adxLen, adxLen)
+trendStrong = adx >= adxMinTrend
+diBull = diPlus > diMinus
+diBear = diMinus > diPlus
+
+// Composite trend bias in [-100, +100].
+trendScore = (emaStackUp ? 35 : emaStackDn ? -35 : 0) + (emaSlopeUp ? 15 : emaSlopeDn ? -15 : 0) + (diBull ? 1 : -1) * math.min(50, adx)
+trendDir   = trendScore > 15 ? 1 : trendScore < -15 ? -1 : 0
+trendTxt   = trendDir == 1 ? "Bullish" : trendDir == -1 ? "Bearish" : "Neutral"
+
+// ============================================================================
+//  SECTION 6 — VOLUME LAYER
+//  Works gracefully when the feed has no real volume (many FX symbols).
+// ============================================================================
+hasVol   = not na(volume) and volume > 0
+volAvg   = ta.sma(volume, volLen)
+volZ     = hasVol and ta.stdev(volume, volLen) > 0 ? (volume - volAvg) / ta.stdev(volume, volLen) : 0.0
+volSurge = hasVol and volume > volAvg * 1.5
+
+// On-balance-volume slope as buying/selling pressure proxy.
+obv      = ta.cum(hasVol ? (math.sign(close - close[1]) * volume) : 0.0)
+obvSlope = obv - obv[3]
+buyPressure  = (close - low) / (high - low == 0 ? 1 : high - low)    // 0..1 close position in range
+sellPressure = 1.0 - buyPressure
+
+// ============================================================================
+//  SECTION 7 — MARKET STRUCTURE (pivots / BOS / CHoCH)
+//  All structural reads use CONFIRMED pivots (offset by pivotLen) => no
+//  structural repaint.
+// ============================================================================
+ph = ta.pivothigh(high, pivotLen, pivotLen)
+pl = ta.pivotlow(low,  pivotLen, pivotLen)
+
+// Track last two confirmed swing highs/lows and their bar index.
+var float lastPH  = na
+var float prevPH  = na
+var float lastPL  = na
+var float prevPL  = na
+
+if not na(ph)
+    prevPH := lastPH
+    lastPH := ph
+if not na(pl)
+    prevPL := lastPL
+    lastPL := pl
+
+// Internal trend state for CHoCH (Change of Character): the structure flips
+// when price breaks the opposite side's last swing.
+var int structDir = 0     // +1 bullish structure, -1 bearish
+
+bosUp   = not na(lastPH) and ta.crossover(close, lastPH)     // Break Of Structure up
+bosDn   = not na(lastPL) and ta.crossunder(close, lastPL)    // Break Of Structure down
+
+chochUp = bosUp and structDir <= 0     // first up-break after a bearish phase
+chochDn = bosDn and structDir >= 0     // first down-break after a bullish phase
+
+if bosUp
+    structDir := 1
+if bosDn
+    structDir := -1
+
+// Higher-high / higher-low / lower-high / lower-low classification.
+hh = not na(lastPH) and not na(prevPH) and lastPH > prevPH
+lh = not na(lastPH) and not na(prevPH) and lastPH < prevPH
+hl = not na(lastPL) and not na(prevPL) and lastPL > prevPL
+ll = not na(lastPL) and not na(prevPL) and lastPL < prevPL
+
+structBull = (hh and hl) or structDir == 1
+structBear = (lh and ll) or structDir == -1
+
+// ============================================================================
+//  SECTION 8 — LIQUIDITY SWEEP DETECTION
+//  A "sweep" = price pokes beyond a prior swing (grabbing stops) then snaps
+//  back inside on the same bar. Classic pre-reversal footprint.
+// ============================================================================
+sweepHigh = swEnabled and not na(lastPH) and high > lastPH and close < lastPH and close < open
+sweepLow  = swEnabled and not na(lastPL) and low  < lastPL and close > lastPL and close > open
+
+// ============================================================================
+//  SECTION 9 — FAIR VALUE GAP (FVG) DETECTION
+//  Bullish FVG: gap between high[2] and low[0] (imbalance up).
+//  Bearish FVG: gap between low[2] and high[0] (imbalance down).
+// ============================================================================
+bullFVG = fvgEnabled and low > high[2] and close > open
+bearFVG = fvgEnabled and high < low[2] and close < open
+
+if fvgShow and bullFVG and barstate.isconfirmed
+    box.new(bar_index[2], low, bar_index, high[2], border_color=color.new(color.teal, 60), bgcolor=color.new(color.teal, 85))
+if fvgShow and bearFVG and barstate.isconfirmed
+    box.new(bar_index[2], high, bar_index, low[2], border_color=color.new(color.red, 60), bgcolor=color.new(color.red, 85))
+
+// ============================================================================
+//  SECTION 10 — MEAN REVERSION LAYER
+//  Z-score of price vs basis; stretched-and-snapping back = early reversal.
+// ============================================================================
+priceZ   = ta.stdev(close, bbLen) > 0 ? (close - basis) / ta.stdev(close, bbLen) : 0.0
+mrLong   = priceZ < -1.8 and close > close[1]    // deeply oversold, turning up
+mrShort  = priceZ >  1.8 and close < close[1]    // deeply overbought, turning down
+
+// ============================================================================
+//  SECTION 11 — EXHAUSTION DETECTION
+//  Extended run into stretched RSI with a fading candle / wick rejection.
+// ============================================================================
+upExhaust = rsi > 70 and close < high - (high - low) * 0.5 and close[1] > open[1]
+dnExhaust = rsi < 30 and close > low  + (high - low) * 0.5 and close[1] < open[1]
+
+// ============================================================================
+//  SECTION 12 — DIVERGENCE DETECTION (RSI regular divergence on pivots)
+// ============================================================================
+phPrice = ta.pivothigh(high, pivotLen, pivotLen)
+plPrice = ta.pivotlow(low,  pivotLen, pivotLen)
+phRsi   = ta.pivothigh(rsi, pivotLen, pivotLen)
+plRsi   = ta.pivotlow(rsi,  pivotLen, pivotLen)
+
+var float prevPLp = na
+var float prevPLr = na
+var float prevPHp = na
+var float prevPHr = na
+bullDiv = false
+bearDiv = false
+
+if not na(plPrice) and not na(plRsi)
+    if not na(prevPLp) and plPrice < prevPLp and plRsi > prevPLr
+        bullDiv := true                              // price LL, RSI HL => bullish
+    prevPLp := plPrice
+    prevPLr := plRsi
+if not na(phPrice) and not na(phRsi)
+    if not na(prevPHp) and phPrice > prevPHp and phRsi < prevPHr
+        bearDiv := true                              // price HH, RSI LH => bearish
+    prevPHp := phPrice
+    prevPHr := phRsi
+
+// ============================================================================
+//  SECTION 13 — MULTI-TIMEFRAME CONFIRMATION
+//  Pull the higher-TF EMA bias. Reference [1] of the HTF series for a
+//  non-repainting read; lookahead is off.
+// ============================================================================
+autoHTF() =>
+    tfm = timeframe.in_seconds() / 60.0
+    tfm <= 1 ? "15" : tfm <= 5 ? "60" : tfm <= 15 ? "240" : tfm <= 60 ? "D" : tfm <= 240 ? "D" : tfm <= 1440 ? "W" : "M"
+
+htfTF = mtfTF == "" ? autoHTF() : mtfTF
+
+htfBiasRaw() =>
+    ef = ta.ema(close, emaFastLen)
+    es = ta.ema(close, emaSlowLen)
+    ef > es ? 1 : ef < es ? -1 : 0
+
+htfBias = useMTF ? nz(request.security(syminfo.tickerid, htfTF, htfBiasRaw()[1], lookahead=barmerge.lookahead_off), 0) : 0
+htfTxt  = htfBias == 1 ? "Up" : htfBias == -1 ? "Down" : "Flat"
+
+// ============================================================================
+//  SECTION 14 — SESSION & NEWS FILTERS
+// ============================================================================
+inSession = not useSession or not na(time(timeframe.period, sessSpec, sessTZ))
+inNews    = useNews and not na(time(timeframe.period, newsStart, newsTZ))
+filtersOK = inSession and not inNews
+
+// ============================================================================
+//  SECTION 15 — ANTI-CHOP & VOLATILITY GATES
+// ============================================================================
+emaSpread = math.abs(emaFast - emaSlow) / (atr == 0 ? 1 : atr)   // ATR-units of EMA separation
+choppy    = useChopFilter and (emaSpread < 0.5 or (not emaStackUp and not emaStackDn and adx < adxMinTrend))
+volOK     = not useVolFilter or not volContracting or volExpanding
+trendOK   = not useTrendFilter or trendStrong
+volumeOK  = not useVolumeFilter or volSurge or not hasVol
+
+// ============================================================================
+//  SECTION 16 — CONFIDENCE SCORE (0-100) + DIRECTION
+//  Each layer contributes weighted evidence. We compute a signed raw score,
+//  then map magnitude to a 0-100 confidence and the sign to a direction.
+// ============================================================================
+bullPts = 0.0
+bearPts = 0.0
+
+// Momentum (max ~22)
+bullPts += momUp ? 14 : 0
+bullPts += rsiSlope > 0 ? 4 : 0
+bullPts += histRising ? 4 : 0
+bearPts += momDn ? 14 : 0
+bearPts += rsiSlope < 0 ? 4 : 0
+bearPts += histFalling ? 4 : 0
+
+// Trend (max ~20)
+bullPts += structBull ? 8 : 0
+bullPts += emaStackUp ? 7 : 0
+bullPts += diBull and trendStrong ? 5 : 0
+bearPts += structBear ? 8 : 0
+bearPts += emaStackDn ? 7 : 0
+bearPts += diBear and trendStrong ? 5 : 0
+
+// Market structure events (max ~16)
+bullPts += bosUp ? 6 : 0
+bullPts += chochUp ? 10 : 0
+bearPts += bosDn ? 6 : 0
+bearPts += chochDn ? 10 : 0
+
+// Liquidity sweeps (reversal fuel, max 12)
+bullPts += sweepLow ? 12 : 0
+bearPts += sweepHigh ? 12 : 0
+
+// FVG (max 6)
+bullPts += bullFVG ? 6 : 0
+bearPts += bearFVG ? 6 : 0
+
+// Mean reversion (max 8)
+bullPts += mrLong ? 8 : 0
+bearPts += mrShort ? 8 : 0
+
+// Exhaustion of the opposing side (max 8)
+bullPts += dnExhaust ? 8 : 0
+bearPts += upExhaust ? 8 : 0
+
+// Divergence (max 10)
+bullPts += bullDiv ? 10 : 0
+bearPts += bearDiv ? 10 : 0
+
+// Volume confirmation (max 8)
+bullPts += (obvSlope > 0 and buyPressure > 0.6) ? 8 : 0
+bearPts += (obvSlope < 0 and sellPressure > 0.6) ? 8 : 0
+
+// Volatility expansion bonus (a swing needs fuel, max 6)
+bullPts += (volExpanding and momScore > 0) ? 6 : 0
+bearPts += (volExpanding and momScore < 0) ? 6 : 0
+
+// MTF alignment (max 8 / strict block handled later)
+bullPts += (htfBias == 1) ? 8 : 0
+bearPts += (htfBias == -1) ? 8 : 0
+
+// Total theoretical max of either side (kept in sync with weights above).
+maxPts   = 124.0
+rawScore = bullPts - bearPts
+sigDir   = rawScore > 0 ? 1 : rawScore < 0 ? -1 : 0
+confidence = math.round(math.min(100.0, (math.max(bullPts, bearPts) / maxPts) * 100.0))
+
+// Signal quality = confidence tempered by how "clean" conditions are
+// (trend strength present, not choppy, volatility healthy).
+qualityRaw = confidence * (choppy ? 0.6 : 1.0) * (trendStrong ? 1.0 : 0.85) * (volContracting and not volExpanding ? 0.8 : 1.0)
+quality    = math.round(math.min(100.0, qualityRaw))
+qualTxt    = quality >= 80 ? "A+" : quality >= 65 ? "A" : quality >= 50 ? "B" : quality >= 35 ? "C" : "D"
+
+// ============================================================================
+//  SECTION 17 — SIGNAL DECISION + COOLDOWN
+// ============================================================================
+// Core directional logic per spec.
+buyCore  = sigDir == 1 and momUp   and rsiSlope > 0 and structBull
+sellCore = sigDir == -1 and momDn  and rsiSlope < 0 and structBear
+
+// Strict MTF can veto opposing signals entirely.
+mtfBuyOK  = not (useMTF and mtfStrict) or htfBias >= 0
+mtfSellOK = not (useMTF and mtfStrict) or htfBias <= 0
+
+// Master gate: filters + timing + mode confidence.
+gateCommon = filtersOK and volOK and volumeOK and confirmOK and not choppy
+
+rawBuy  = gateCommon and trendOK and buyCore  and confidence >= confGate and mtfBuyOK
+rawSell = gateCommon and trendOK and sellCore and confidence >= confGate and mtfSellOK
+
+// Cooldown: prevent clustering of same-direction signals.
+var int lastBuyBar  = na
+var int lastSellBar = na
+buyCooled  = na(lastBuyBar)  or (bar_index - lastBuyBar)  > cooldownEff
+sellCooled = na(lastSellBar) or (bar_index - lastSellBar) > cooldownEff
+
+buySignal    = rawBuy  and buyCooled
+sellSignal   = rawSell and sellCooled
+strongBuy    = buySignal  and confidence >= strongGate and quality >= 65
+strongSell   = sellSignal and confidence >= strongGate and quality >= 65
+
+// Latch cooldown bars only when a signal actually fires.
+if buySignal
+    lastBuyBar := bar_index
+if sellSignal
+    lastSellBar := bar_index
+
+// Trend-change event (for coloring + alerts).
+var int colorDir = 0
+if buySignal
+    colorDir := 1
+if sellSignal
+    colorDir := -1
+trendChanged = (buySignal and colorDir[1] != 1) or (sellSignal and colorDir[1] != -1)
+
+// ============================================================================
+//  SECTION 18 — VISUALS: trend coloring, bands, structure & signal markers
+// ============================================================================
+// Smart trend color (green/red intensity scaled by confidence).
+trendCol = colorDir == 1 ? color.new(color.lime, math.max(0, 70 - confidence/2)) : colorDir == -1 ? color.new(color.red, math.max(0, 70 - confidence/2)) : color.new(color.gray, 70)
+barcolor(colorBars ? trendCol : na)
+
+// Dynamic EMA ribbon for context.
+pFast = plot(emaFast, "EMA fast", color=color.new(color.aqua, 40), linewidth=1)
+pSlow = plot(emaSlow, "EMA slow", color=color.new(color.orange, 40), linewidth=1)
+fill(pFast, pSlow, color=emaStackUp ? color.new(color.lime, 88) : emaStackDn ? color.new(color.red, 88) : color.new(color.gray, 92))
+
+// Signal labels.
+plotshape(showSignals and buySignal and not strongBuy,  title="BUY",  style=shape.labelup,   location=location.belowbar, color=color.new(color.green, 0), text="BUY",  textcolor=color.white, size=size.small)
+plotshape(showSignals and sellSignal and not strongSell, title="SELL", style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0),   text="SELL", textcolor=color.white, size=size.small)
+plotshape(showSignals and strongBuy,  title="STRONG BUY",  style=shape.labelup,   location=location.belowbar, color=color.new(color.teal, 0),   text="STRONG\nBUY",  textcolor=color.white, size=size.normal)
+plotshape(showSignals and strongSell, title="STRONG SELL", style=shape.labeldown, location=location.abovebar, color=color.new(color.maroon, 0), text="STRONG\nSELL", textcolor=color.white, size=size.normal)
+
+// Entry markers (small triangles at the candle).
+plotshape(showEntries and buySignal,  title="Entry Long",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.tiny)
+plotshape(showEntries and sellSignal, title="Entry Short", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.tiny)
+
+// Structure & footprint markers.
+plotshape(showStruct and chochUp and barstate.isconfirmed, title="CHoCH Up", style=shape.diamond, location=location.belowbar, color=color.new(color.green, 0), text="CHoCH", textcolor=color.green, size=size.tiny)
+plotshape(showStruct and chochDn and barstate.isconfirmed, title="CHoCH Dn", style=shape.diamond, location=location.abovebar, color=color.new(color.red, 0),   text="CHoCH", textcolor=color.red,   size=size.tiny)
+plotshape(showStruct and bosUp and not chochUp and barstate.isconfirmed, title="BOS Up", style=shape.cross, location=location.belowbar, color=color.new(color.teal, 30), text="BOS", textcolor=color.teal, size=size.tiny)
+plotshape(showStruct and bosDn and not chochDn and barstate.isconfirmed, title="BOS Dn", style=shape.cross, location=location.abovebar, color=color.new(color.maroon, 30), text="BOS", textcolor=color.maroon, size=size.tiny)
+plotchar(swEnabled and sweepLow and barstate.isconfirmed,  title="Sweep Low",  char="⤓", location=location.belowbar, color=color.lime, size=size.tiny)
+plotchar(swEnabled and sweepHigh and barstate.isconfirmed, title="Sweep High", char="⤒", location=location.abovebar, color=color.red,  size=size.tiny)
+
+// ============================================================================
+//  SECTION 19 — DASHBOARD TABLE
+// ============================================================================
+f_pos(p) =>
+    p == "Top Right" ? position.top_right : p == "Top Left" ? position.top_left : p == "Bottom Right" ? position.bottom_right : p == "Bottom Left" ? position.bottom_left : position.middle_right
+
+f_size(s) =>
+    s == "Tiny" ? size.tiny : s == "Small" ? size.small : s == "Large" ? size.large : size.normal
+
+// Momentum meter as a unicode bar (0-10 blocks).
+f_meter(v) =>
+    n = math.round(v / 10.0)
+    out = ""
+    for i = 0 to 9
+        out := out + (i < n ? "█" : "░")
+    out
+
+var table dash = na
+if showDash
+    dash := table.new(f_pos(dashPos), 2, 8, border_width=1, frame_color=color.new(color.gray, 40), frame_width=1)
+
+regimeTxt = squeezeOn ? "Squeeze (pre-break)" : volExpanding ? "Expansion" : trendStrong and trendDir != 0 ? "Trending" : volContracting ? "Contraction" : "Ranging"
+sz = f_size(dashSize)
+
+if showDash and barstate.islast
+    bg = color.new(color.black, 15)
+    hd = color.new(color.blue, 10)
+    table.cell(dash, 0, 0, "APEX ENGINE", bgcolor=hd, text_color=color.white, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 0, modePreset, bgcolor=hd, text_color=color.white, text_size=sz, text_halign=text.align_right)
+
+    table.cell(dash, 0, 1, "Trend", bgcolor=bg, text_color=color.silver, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 1, trendTxt, bgcolor=bg, text_color=trendDir==1?color.lime:trendDir==-1?color.red:color.gray, text_size=sz, text_halign=text.align_right)
+
+    table.cell(dash, 0, 2, "Momentum", bgcolor=bg, text_color=color.silver, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 2, f_meter(momStrength) + " " + str.tostring(momStrength), bgcolor=bg, text_color=momScore>0?color.lime:momScore<0?color.red:color.gray, text_size=sz, text_halign=text.align_right)
+
+    table.cell(dash, 0, 3, "Confidence", bgcolor=bg, text_color=color.silver, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 3, str.tostring(confidence) + "%", bgcolor=bg, text_color=confidence>=strongGate?color.lime:confidence>=confGate?color.yellow:color.gray, text_size=sz, text_halign=text.align_right)
+
+    table.cell(dash, 0, 4, "Volatility", bgcolor=bg, text_color=color.silver, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 4, volState + (squeezeOn?" ⚡":""), bgcolor=bg, text_color=volState=="High"?color.orange:volState=="Low"?color.gray:color.silver, text_size=sz, text_halign=text.align_right)
+
+    table.cell(dash, 0, 5, "Signal Quality", bgcolor=bg, text_color=color.silver, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 5, qualTxt + " (" + str.tostring(quality) + ")", bgcolor=bg, text_color=quality>=65?color.lime:quality>=50?color.yellow:color.gray, text_size=sz, text_halign=text.align_right)
+
+    table.cell(dash, 0, 6, "Regime", bgcolor=bg, text_color=color.silver, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 6, regimeTxt, bgcolor=bg, text_color=color.aqua, text_size=sz, text_halign=text.align_right)
+
+    table.cell(dash, 0, 7, "HTF " + htfTF, bgcolor=bg, text_color=color.silver, text_size=sz, text_halign=text.align_left)
+    table.cell(dash, 1, 7, useMTF ? htfTxt : "off", bgcolor=bg, text_color=htfBias==1?color.lime:htfBias==-1?color.red:color.gray, text_size=sz, text_halign=text.align_right)
+
+// ============================================================================
+//  SECTION 20 — ALERTS
+//  alertcondition() entries appear in the "Create Alert" dropdown; alert()
+//  calls also fire dynamically for users who prefer a single any-alert.
+// ============================================================================
+alertcondition(buySignal,    title="APEX • Buy",                 message="APEX BUY {{ticker}} @ {{close}} | Conf {{plot('Confidence')}}%")
+alertcondition(sellSignal,   title="APEX • Sell",                message="APEX SELL {{ticker}} @ {{close}} | Conf {{plot('Confidence')}}%")
+alertcondition(strongBuy,    title="APEX • Strong Buy",          message="APEX STRONG BUY {{ticker}} @ {{close}}")
+alertcondition(strongSell,   title="APEX • Strong Sell",         message="APEX STRONG SELL {{ticker}} @ {{close}}")
+alertcondition(trendChanged, title="APEX • Trend Change",        message="APEX TREND CHANGE {{ticker}} @ {{close}}")
+alertcondition(volExpanding and not volExpanding[1], title="APEX • Volatility Expansion", message="APEX VOLATILITY EXPANSION {{ticker}} @ {{close}}")
+
+// Plot confidence as an (invisible) series so it can be referenced in alert
+// messages via {{plot('Confidence')}} and read in the Data Window.
+plot(confidence, "Confidence", display=display.data_window)
+plot(quality,    "Quality",    display=display.data_window)
+plot(momStrength,"MomStrength",display=display.data_window)
+
+// Dynamic alert() fires (respect the bar-confirmation gate to avoid spam).
+if buySignal and (barstate.isconfirmed or allowLive)
+    alert("APEX BUY " + syminfo.ticker + " | Conf " + str.tostring(confidence) + "% | Q " + qualTxt, alert.freq_once_per_bar)
+if sellSignal and (barstate.isconfirmed or allowLive)
+    alert("APEX SELL " + syminfo.ticker + " | Conf " + str.tostring(confidence) + "% | Q " + qualTxt, alert.freq_once_per_bar)
