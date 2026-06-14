@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Craftbox — a voxel sandbox</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- Crosshair -->
+  <div id="crosshair">+</div>
+
+  <!-- Debug / status line -->
+  <div id="debug">loading…</div>
+
+  <!-- Currently selected block name -->
+  <div id="block-name"></div>
+
+  <!-- Hotbar -->
+  <div id="hotbar"></div>
+
+  <!-- Click-to-play overlay -->
+  <div id="overlay">
+    <div class="panel">
+      <h1>CRAFTBOX</h1>
+      <p class="tag">An infinite voxel world, built from scratch.</p>
+      <div class="controls">
+        <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</div>
+        <div><kbd>Mouse</kbd> Look around</div>
+        <div><kbd>Space</kbd> Jump / swim up &nbsp; <kbd>Shift</kbd> Sprint</div>
+        <div><kbd>Left&nbsp;Click</kbd> Break block</div>
+        <div><kbd>Right&nbsp;Click</kbd> Place block</div>
+        <div><kbd>1</kbd>–<kbd>9</kbd> / <kbd>Scroll</kbd> Select block</div>
+        <div><kbd>E</kbd> Open inventory &nbsp; <kbd>F</kbd> Toggle fly</div>
+        <div><kbd>Ctrl</kbd> Descend (while flying)</div>
+      </div>
+      <button id="play-btn">Click to Play</button>
+    </div>
+  </div>
+
+  <!-- Inventory picker -->
+  <div id="inventory"></div>
+
+  <div id="loading">Generating world…</div>
+
+  <script type="module" src="js/main.js"></script>
+  <script>
+    // The overlay's Play button just funnels the click into the canvas
+    // (which requests pointer lock). Hidden once the pointer is locked.
+    document.getElementById('play-btn')?.addEventListener('click', () => {
+      document.getElementById('game').requestPointerLock();
+    });
+  </script>
+</body>
+</html>
