@@ -1,20 +1,25 @@
 {
-  "name": "tux-kinetic-chart-animation",
+  "name": "tux-snd-kinetic-ad",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "description": "TUX S&D Kinetic - minimalist SaaS video ad (Remotion, 1080x1920, 28s, 30fps)",
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion render SaasAd out/tux-snd-kinetic.mp4",
+    "build:still": "remotion still SaasAd out/endcard.png --frame=820",
+    "upgrade": "remotion upgrade"
+  },
   "dependencies": {
-    "framer-motion": "^10.16.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "@fontsource/inter": "^5.2.8",
+    "@remotion/cli": "4.0.272",
+    "@remotion/fonts": "^4.0.272",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "4.0.272"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.0.8"
-  },
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.4.5"
   }
 }

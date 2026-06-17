@@ -1,4 +1,6 @@
 node_modules/
 dist/
+out/
 package-lock.json
 *.mp4
+.remotion/
