@@ -2,9 +2,12 @@
 
 Minimalist SaaS-style vertical ad (ClickUp vibe) built with [Remotion](https://remotion.dev).
 
-- **Format:** 1080 × 1920, 30 fps, 43 s (1290 frames)
-- **Style:** white/grey background `#F5F5F5`, black Inter Bold text, red accent
-  for "messy", brand green `#10B981` for TUX S&D Kinetic.
+- **Format:** 1080 × 1920, 30 fps, 37 s (1110 frames), with background music
+- **Style:** ClickUp-style — white/grey background `#F5F5F5`, black Inter Bold
+  text, soft color glows behind hero words, motion-blur "punch-in" entrances,
+  floating emojis + editor cursor + selection-box handles, red accent for
+  "messy", brand green `#10B981` for TUX S&D Kinetic.
+- **Audio:** `public/audio/track.m4a` (the reference track).
 
 ## Timeline
 

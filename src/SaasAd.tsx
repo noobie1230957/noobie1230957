@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   AbsoluteFill,
+  Audio,
   Img,
   interpolate,
   OffthreadVideo,
@@ -60,22 +61,151 @@ const headingStyle: React.CSSProperties = {
   margin: 0,
 };
 
+// ---------- ClickUp-style attention helpers ----------
+
+// Soft radial color glow behind hero words (the signature ClickUp look).
+const Glow: React.FC<{color: string; size?: number; intensity?: number}> = ({
+  color,
+  size = 900,
+  intensity = 0.5,
+}) => {
+  const frame = useCurrentFrame();
+  const pulse = interpolate(Math.sin(frame * 0.12), [-1, 1], [0.82, 1.05]);
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        width: size,
+        height: size,
+        transform: `translate(-50%, -50%) scale(${pulse})`,
+        background: `radial-gradient(circle, ${color} 0%, rgba(255,255,255,0) 62%)`,
+        opacity: intensity,
+        filter: 'blur(20px)',
+        pointerEvents: 'none',
+      }}
+    />
+  );
+};
+
+// Snappy "motion-blur" entrance: returns scale + blur for a word popping in.
+const usePunchIn = (delay = 0) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const s = spring({
+    frame: frame - delay,
+    fps,
+    config: {damping: 13, mass: 0.6, stiffness: 150},
+  });
+  const blur = interpolate(s, [0, 1], [16, 0]);
+  const scale = interpolate(s, [0, 1], [0.6, 1]);
+  return {scale, blur, progress: s};
+};
+
+// Editor cursor pointer, like the ClickUp ad.
+const Cursor: React.FC<{x: number; y: number; delay?: number}> = ({x, y, delay = 6}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const s = spring({frame: frame - delay, fps, config: {damping: 14}});
+  const bob = Math.sin(frame * 0.18) * 4;
+  return (
+    <svg
+      width="58"
+      height="58"
+      viewBox="0 0 24 24"
+      style={{
+        position: 'absolute',
+        left: x,
+        top: y + bob,
+        opacity: s,
+        transform: `scale(${s})`,
+        filter: 'drop-shadow(0 6px 12px rgba(0,0,0,0.25))',
+      }}
+    >
+      <path d="M5 3l14 8-6 1.5L9.5 18 5 3z" fill="#fff" stroke={COLORS.ink} strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+};
+
+// Selection box with corner handles around a word (ClickUp "sense" motif).
+const SelectionHandles: React.FC<{color?: string; delay?: number}> = ({
+  color = COLORS.brand,
+  delay = 8,
+}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const s = spring({frame: frame - delay, fps, config: {damping: 16}});
+  const dot = (style: React.CSSProperties) => (
+    <div
+      style={{
+        position: 'absolute',
+        width: 26,
+        height: 26,
+        borderRadius: 999,
+        background: color,
+        border: '4px solid #fff',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+        ...style,
+      }}
+    />
+  );
+  return (
+    <div style={{position: 'absolute', inset: -22, opacity: s, borderRadius: 14, border: `3px solid ${color}`}}>
+      {dot({top: -13, left: -13})}
+      {dot({bottom: -13, right: -13})}
+    </div>
+  );
+};
+
+// Floating emoji accents (like the emojis around "Messy").
+const FloatingEmojis: React.FC<{emojis: {char: string; x: string; y: string; delay: number}[]}> = ({
+  emojis,
+}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  return (
+    <>
+      {emojis.map((e, i) => {
+        const s = spring({frame: frame - e.delay, fps, config: {damping: 9, mass: 0.6, stiffness: 130}});
+        const float = Math.sin((frame + i * 20) * 0.12) * 10;
+        return (
+          <div
+            key={i}
+            style={{
+              position: 'absolute',
+              left: e.x,
+              top: e.y,
+              fontSize: 64,
+              transform: `translate(-50%, -50%) scale(${s}) translateY(${float}px)`,
+              opacity: s,
+            }}
+          >
+            {e.char}
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
 // ---------- scene components ----------
 
 const SceneCharts: React.FC = () => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const opacity = useSceneFade(18, 12);
-  const rise = spring({frame, fps, config: {damping: 16, mass: 0.8}});
+  const opacity = useSceneFade(10, 12);
+  const {scale, blur} = usePunchIn(2);
   return (
     <FullText>
+      <Glow color="rgba(16,185,129,0.45)" size={1000} intensity={0.55} />
       <h1
         style={{
           ...headingStyle,
           fontSize: 150,
           letterSpacing: '0.02em',
           opacity,
-          transform: `translateY(${interpolate(rise, [0, 1], [40, 0])}px)`,
+          position: 'relative',
+          transform: `scale(${scale})`,
+          filter: `blur(${blur}px)`,
         }}
       >
         TRADING
@@ -87,7 +217,7 @@ const SceneCharts: React.FC = () => {
 const SceneMessy: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const opacity = useSceneFade(12, 12);
+  const opacity = useSceneFade(10, 12);
   // "messy" pops in a bit after the line appears.
   const pop = spring({
     frame: frame - 10,
@@ -101,7 +231,15 @@ const SceneMessy: React.FC = () => {
 
   return (
     <FullText>
-      <div style={{opacity, textAlign: 'center'}}>
+      <Glow color="rgba(239,68,68,0.4)" size={900} intensity={0.5} />
+      <FloatingEmojis
+        emojis={[
+          {char: '😵‍💫', x: '30%', y: '40%', delay: 12},
+          {char: '🤔', x: '72%', y: '44%', delay: 18},
+          {char: '😣', x: '42%', y: '62%', delay: 24},
+        ]}
+      />
+      <div style={{opacity, textAlign: 'center', position: 'relative'}}>
         <div style={{...headingStyle, fontSize: 120}}>shouldn&rsquo;t be</div>
         <div
           style={{
@@ -116,6 +254,7 @@ const SceneMessy: React.FC = () => {
           messy
         </div>
       </div>
+      <Cursor x={640} y={1060} delay={20} />
     </FullText>
   );
 };
@@ -266,7 +405,8 @@ const SceneBrand: React.FC = () => {
   );
   return (
     <FullText>
-      <div style={{opacity, textAlign: 'center', transform: `scale(${scale})`}}>
+      <Glow color="rgba(16,185,129,0.5)" size={1100} intensity={0.6} />
+      <div style={{opacity, textAlign: 'center', transform: `scale(${scale})`, position: 'relative'}}>
         <div
           style={{
             ...headingStyle,
@@ -352,10 +492,12 @@ const ImageStatement: React.FC<{
                       style={{
                         color: COLORS.brand,
                         display: 'inline-block',
+                        position: 'relative',
                         transform: `scale(${interpolate(pop, [0, 1], [0.7, 1])})`,
                       }}
                     >
                       {l}
+                      <SelectionHandles delay={18} />
                     </span>
                   ) : (
                     l
@@ -493,24 +635,24 @@ const SceneHowItWorks: React.FC = () => {
 
       <AbsoluteFill style={{opacity}}>
         {/* Flow 1 — SHORT power level -> dump */}
-        <Pill top="24%" appear={12} disappear={142} variant="dark" icon={<Dot color={COLORS.red} />}>
+        <Pill top="24%" appear={8} disappear={116} variant="dark" icon={<Dot color={COLORS.red} />}>
           Price taps a {hi('SHORT', '#FF6B6B')} power level
         </Pill>
-        <Pill top="41%" appear={42} disappear={142} variant="white">
+        <Pill top="41%" appear={34} disappear={116} variant="white">
           Dashboard confirms {hi('RSI above 55', COLORS.red)}
         </Pill>
-        <Pill top="58%" appear={74} disappear={142} variant="red" fontSize={56} icon={<Arrow dir="down" />}>
+        <Pill top="58%" appear={62} disappear={116} variant="red" fontSize={56} icon={<Arrow dir="down" />}>
           Market dumps
         </Pill>
 
         {/* Flow 2 — LONG power level -> pump */}
-        <Pill top="24%" appear={160} disappear={300} variant="dark" icon={<Dot color={COLORS.brand} />}>
+        <Pill top="24%" appear={130} disappear={250} variant="dark" icon={<Dot color={COLORS.brand} />}>
           Price taps a {hi('LONG', '#4ADE80')} power level
         </Pill>
-        <Pill top="41%" appear={190} disappear={300} variant="white">
+        <Pill top="41%" appear={156} disappear={250} variant="white">
           Dashboard confirms {hi('RSI below 49', COLORS.brandDark)}
         </Pill>
-        <Pill top="58%" appear={222} disappear={300} variant="green" fontSize={56} icon={<Arrow dir="up" />}>
+        <Pill top="58%" appear={184} disappear={250} variant="green" fontSize={56} icon={<Arrow dir="up" />}>
           Market pumps
         </Pill>
       </AbsoluteFill>
@@ -848,6 +990,8 @@ export const SaasAd: React.FC = () => {
   const dur = (sec: number) => sec * FPS;
   return (
     <AbsoluteFill style={{backgroundColor: COLORS.bg}}>
+      <Audio src={staticFile('audio/track.m4a')} volume={0.9} />
+
       <Sequence from={s.charts.from} durationInFrames={dur(s.charts.durationInSeconds)}>
         <SceneCharts />
       </Sequence>

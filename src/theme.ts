@@ -15,24 +15,24 @@ export const COLORS = {
 export const FONT_FAMILY_FALLBACK =
   'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
-// 43s @ 30fps = 1290 frames.
+// 37s @ 30fps = 1110 frames (matches the reference track length).
 export const FPS = 30;
 export const WIDTH = 1080;
 export const HEIGHT = 1920;
-export const DURATION_IN_FRAMES = 43 * FPS;
+export const DURATION_IN_FRAMES = 37 * FPS;
 
-// Scene boundaries in seconds -> frames.
+// Scene boundaries in frames (from) + durations in seconds.
 export const SCENES = {
   charts: {from: 0, durationInSeconds: 2},
-  messy: {from: 2 * FPS, durationInSeconds: 2},
-  indicators: {from: 4 * FPS, durationInSeconds: 2},
-  fakeSignals: {from: 6 * FPS, durationInSeconds: 2},
-  identify: {from: 8 * FPS, durationInSeconds: 2},
-  easy: {from: 10 * FPS, durationInSeconds: 2},
-  money: {from: 12 * FPS, durationInSeconds: 2},
-  brand: {from: 14 * FPS, durationInSeconds: 2},
-  howItWorks: {from: 16 * FPS, durationInSeconds: 11},
-  access: {from: 27 * FPS, durationInSeconds: 6},
-  benefits: {from: 33 * FPS, durationInSeconds: 7},
-  endCard: {from: 40 * FPS, durationInSeconds: 3},
+  messy: {from: 60, durationInSeconds: 2},
+  indicators: {from: 120, durationInSeconds: 2},
+  fakeSignals: {from: 180, durationInSeconds: 2},
+  identify: {from: 240, durationInSeconds: 2},
+  easy: {from: 300, durationInSeconds: 2},
+  money: {from: 360, durationInSeconds: 2},
+  brand: {from: 420, durationInSeconds: 1.5},
+  howItWorks: {from: 465, durationInSeconds: 9},
+  access: {from: 735, durationInSeconds: 5},
+  benefits: {from: 885, durationInSeconds: 5},
+  endCard: {from: 1035, durationInSeconds: 2.5},
 } as const;
