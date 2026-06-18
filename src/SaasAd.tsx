@@ -1,9 +1,11 @@
 import React from 'react';
 import {
   AbsoluteFill,
+  Img,
   interpolate,
   Sequence,
   spring,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
@@ -120,26 +122,62 @@ const SceneMessy: React.FC = () => {
 const SceneIndicators: React.FC = () => {
   const opacity = useSceneFade(12, 12);
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
+  const {fps, durationInFrames} = useVideoConfig();
   const rise = spring({frame, fps, config: {damping: 16}});
+  // slow zoom on the busy chart so it feels alive behind the text
+  const kenBurns = interpolate(frame, [0, durationInFrames], [1.18, 1.32]);
   return (
-    <FullText>
-      <IndicatorIcons />
-      <h1
+    <AbsoluteFill style={{backgroundColor: COLORS.bg, overflow: 'hidden'}}>
+      {/* busy real chart background */}
+      <AbsoluteFill style={{opacity}}>
+        <Img
+          src={staticFile('img/messy-chart.jpg')}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${kenBurns})`,
+          }}
+        />
+      </AbsoluteFill>
+
+      {/* light wash so the chart still reads as a "messy" busy screen */}
+      <AbsoluteFill
         style={{
-          ...headingStyle,
-          fontSize: 100,
           opacity,
-          transform: `translateY(${interpolate(rise, [0, 1], [30, 0])}px)`,
-          zIndex: 5,
-          position: 'relative',
+          background:
+            'linear-gradient(to bottom, rgba(245,245,245,0.35) 0%, rgba(245,245,245,0.15) 40%, rgba(245,245,245,0.15) 60%, rgba(245,245,245,0.45) 100%)',
         }}
+      />
+
+      {/* floating indicator chips */}
+      <IndicatorIcons />
+
+      {/* heading on a frosted panel for legibility */}
+      <AbsoluteFill
+        style={{justifyContent: 'center', alignItems: 'center', padding: '0 70px'}}
       >
-        Too many
-        <br />
-        indicators
-      </h1>
-    </FullText>
+        <div
+          style={{
+            opacity,
+            transform: `translateY(${interpolate(rise, [0, 1], [30, 0])}px)`,
+            background: 'rgba(255,255,255,0.86)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            padding: '44px 56px',
+            borderRadius: 36,
+            boxShadow: '0 30px 80px rgba(0,0,0,0.18)',
+            zIndex: 5,
+          }}
+        >
+          <h1 style={{...headingStyle, fontSize: 100}}>
+            Too many
+            <br />
+            indicators
+          </h1>
+        </div>
+      </AbsoluteFill>
+    </AbsoluteFill>
   );
 };
 
