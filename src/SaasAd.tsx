@@ -990,7 +990,7 @@ export const SaasAd: React.FC = () => {
   const dur = (sec: number) => sec * FPS;
   return (
     <AbsoluteFill style={{backgroundColor: COLORS.bg}}>
-      <Audio src={staticFile('audio/track.m4a')} volume={0.9} />
+      <Audio src={staticFile('audio/voiceover-mix.m4a')} volume={1} />
 
       <Sequence from={s.charts.from} durationInFrames={dur(s.charts.durationInSeconds)}>
         <SceneCharts />
