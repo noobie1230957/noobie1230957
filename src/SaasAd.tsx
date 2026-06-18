@@ -438,7 +438,8 @@ const ImageStatement: React.FC<{
   image: string;
   lines: string[];
   highlightLast?: boolean;
-}> = ({image, lines, highlightLast}) => {
+  fontSize?: number;
+}> = ({image, lines, highlightLast, fontSize = 100}) => {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
   const opacity = useSceneFade(12, 12);
@@ -482,7 +483,7 @@ const ImageStatement: React.FC<{
             boxShadow: '0 30px 80px rgba(0,0,0,0.2)',
           }}
         >
-          <h1 style={{...headingStyle, fontSize: 100}}>
+          <h1 style={{...headingStyle, fontSize}}>
             {lines.map((l, i) => {
               const isLast = i === lines.length - 1;
               return (
@@ -891,6 +892,7 @@ const SceneEndCard: React.FC = () => {
   const tagRise = spring({frame: frame - 10, fps, config: {damping: 16}});
   const igPop = spring({frame: frame - 22, fps, config: {damping: 11, stiffness: 130}});
   const webRise = spring({frame: frame - 36, fps, config: {damping: 16}});
+  const arrowAppear = spring({frame: frame - 30, fps, config: {damping: 12}});
   return (
     <FullText>
       <div style={{opacity, textAlign: 'center'}}>
@@ -978,6 +980,45 @@ const SceneEndCard: React.FC = () => {
             Visit for more information
           </span>
         </div>
+      </div>
+
+      {/* hype emojis around the CTA */}
+      <FloatingEmojis
+        emojis={[
+          {char: '🔥', x: '15%', y: '28%', delay: 8},
+          {char: '📈', x: '85%', y: '32%', delay: 14},
+          {char: '💸', x: '18%', y: '66%', delay: 20},
+          {char: '✅', x: '83%', y: '70%', delay: 26},
+        ]}
+      />
+
+      {/* bouncing arrow pulling the eye down to the bio link */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '6%',
+          left: '50%',
+          transform: `translateX(-50%) translateY(${Math.sin(frame * 0.28) * 18}px)`,
+          opacity: arrowAppear,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <span style={{fontFamily, fontWeight: 800, fontSize: 44, color: COLORS.ink}}>
+          Tap the link 👇
+        </span>
+        <svg width="92" height="92" viewBox="0 0 24 24">
+          <path
+            d="M12 3v15M5 12l7 7 7-7"
+            fill="none"
+            stroke={COLORS.brand}
+            strokeWidth="2.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </div>
     </FullText>
   );
@@ -1070,7 +1111,11 @@ export const SaasAd: React.FC = () => {
       </Sequence>
 
       <Sequence from={s.easy.from} durationInFrames={s.easy.durationInFrames}>
-        <ImageStatement image="img/good-chart.jpg" lines={['Trading should', 'be easy']} />
+        <ImageStatement
+          image="img/good-chart.jpg"
+          lines={['Trading should', 'be easy']}
+          fontSize={120}
+        />
       </Sequence>
 
       <Sequence from={s.money.from} durationInFrames={s.money.durationInFrames}>
