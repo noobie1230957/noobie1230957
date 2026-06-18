@@ -371,88 +371,89 @@ const ImageStatement: React.FC<{
   );
 };
 
-// Pill-shaped feature callout that pops in over the moving chart clip.
-const FeaturePill: React.FC<{
-  label: string;
-  delay: number;
+// ---- small inline icons ----
+const Dot: React.FC<{color: string}> = ({color}) => (
+  <span style={{flexShrink: 0, width: 18, height: 18, borderRadius: 999, background: color}} />
+);
+const Arrow: React.FC<{dir: 'up' | 'down'}> = ({dir}) => (
+  <svg width="34" height="34" viewBox="0 0 24 24" style={{flexShrink: 0}}>
+    <path
+      d={dir === 'down' ? 'M12 4v14M6 12l6 6 6-6' : 'M12 20V6M6 12l6-6 6 6'}
+      fill="none"
+      stroke="#fff"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+type PillVariant = 'white' | 'dark' | 'red' | 'green';
+const VARIANT: Record<PillVariant, {bg: string; fg: string; shadow: string}> = {
+  white: {bg: '#FFFFFF', fg: COLORS.ink, shadow: '0 18px 50px rgba(0,0,0,0.30)'},
+  dark: {bg: COLORS.ink, fg: '#fff', shadow: '0 18px 50px rgba(0,0,0,0.45)'},
+  red: {bg: COLORS.red, fg: '#fff', shadow: '0 18px 50px rgba(239,68,68,0.45)'},
+  green: {bg: COLORS.brand, fg: '#fff', shadow: '0 18px 50px rgba(16,185,129,0.45)'},
+};
+
+// A centered, timed pill that pops in and (optionally) out.
+const Pill: React.FC<{
+  children: React.ReactNode;
   top: string;
-  align: 'left' | 'right';
-}> = ({label, delay, top, align}) => {
+  appear: number;
+  disappear?: number;
+  variant?: PillVariant;
+  fontSize?: number;
+  icon?: React.ReactNode;
+}> = ({children, top, appear, disappear, variant = 'white', fontSize = 44, icon}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const pop = spring({
-    frame: frame - delay,
-    fps,
-    config: {damping: 11, mass: 0.7, stiffness: 130},
-  });
-  if (frame < delay) return null;
-  const float = Math.sin((frame - delay) / 12) * 5;
+  if (frame < appear) return null;
+  if (disappear !== undefined && frame > disappear + 10) return null;
+  const inS = spring({frame: frame - appear, fps, config: {damping: 12, mass: 0.7, stiffness: 130}});
+  const out =
+    disappear !== undefined
+      ? interpolate(frame, [disappear, disappear + 10], [1, 0], {
+          extrapolateLeft: 'clamp',
+          extrapolateRight: 'clamp',
+        })
+      : 1;
+  const float = Math.sin((frame - appear) / 14) * 4;
+  const v = VARIANT[variant];
   return (
     <div
       style={{
         position: 'absolute',
         top,
-        [align]: 56,
-        transform: `scale(${pop}) translateY(${float}px)`,
-        opacity: pop,
+        left: '50%',
+        transform: `translateX(-50%) scale(${inS}) translateY(${float}px)`,
+        opacity: inS * out,
         display: 'flex',
         alignItems: 'center',
-        gap: 16,
-        padding: '20px 30px',
-        background: '#FFFFFF',
+        gap: 18,
+        padding: '24px 40px',
+        background: v.bg,
+        color: v.fg,
         borderRadius: 999,
-        boxShadow: '0 18px 50px rgba(0,0,0,0.28)',
-        maxWidth: 620,
+        boxShadow: v.shadow,
+        maxWidth: 900,
+        width: 'max-content',
       }}
     >
-      <div
-        style={{
-          flexShrink: 0,
-          width: 38,
-          height: 38,
-          borderRadius: 999,
-          background: COLORS.brand,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <svg width="22" height="22" viewBox="0 0 24 24">
-          <path
-            d="M5 13l4 4L19 7"
-            fill="none"
-            stroke="#fff"
-            strokeWidth="3.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </div>
-      <span
-        style={{
-          fontFamily,
-          fontWeight: 800,
-          fontSize: 40,
-          letterSpacing: '-0.01em',
-          color: COLORS.ink,
-        }}
-      >
-        {label}
+      {icon}
+      <span style={{fontFamily, fontWeight: 800, fontSize, letterSpacing: '-0.01em', textAlign: 'left'}}>
+        {children}
       </span>
     </div>
   );
 };
 
-const FEATURES: {label: string; top: string; align: 'left' | 'right'}[] = [
-  {label: 'High-probability reversal zones', top: '14%', align: 'left'},
-  {label: 'Breakout zones', top: '30%', align: 'right'},
-  {label: 'Confirmation dashboard', top: '46%', align: 'left'},
-  {label: 'Trend filters', top: '62%', align: 'right'},
-  {label: 'Trail stops', top: '78%', align: 'left'},
-];
+const hi = (text: string, color: string): React.ReactNode => (
+  <span style={{color}}>{text}</span>
+);
 
-// Real screen-recording background with feature pills popping in over it.
-const SceneFeatures: React.FC = () => {
+// "How it works" — the real clip plays while the logic is told in pills.
+const SceneHowItWorks: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const opacity = useSceneFade(14, 14);
@@ -466,10 +467,9 @@ const SceneFeatures: React.FC = () => {
           style={{width: '100%', height: '100%', objectFit: 'cover'}}
         />
       </AbsoluteFill>
-      {/* subtle scrim so the white pills read against the chart */}
-      <AbsoluteFill style={{backgroundColor: 'rgba(8,10,14,0.22)', opacity}} />
+      <AbsoluteFill style={{backgroundColor: 'rgba(8,10,14,0.32)', opacity}} />
 
-      {/* header pill */}
+      {/* header */}
       <div
         style={{
           position: 'absolute',
@@ -477,32 +477,245 @@ const SceneFeatures: React.FC = () => {
           left: '50%',
           transform: `translateX(-50%) translateY(${interpolate(headerRise, [0, 1], [-24, 0])}px)`,
           opacity,
-          padding: '16px 34px',
-          background: COLORS.ink,
+          padding: '18px 44px',
+          background: COLORS.brand,
           color: '#fff',
           borderRadius: 999,
           fontFamily,
-          fontWeight: 800,
-          fontSize: 38,
-          letterSpacing: '0.01em',
-          boxShadow: '0 18px 50px rgba(0,0,0,0.35)',
+          fontWeight: 900,
+          fontSize: 48,
+          letterSpacing: '-0.01em',
+          boxShadow: '0 18px 50px rgba(16,185,129,0.4)',
         }}
       >
-        This indicator helps you
+        How it works
       </div>
 
       <AbsoluteFill style={{opacity}}>
-        {FEATURES.map((f, i) => (
-          <FeaturePill
-            key={f.label}
-            label={f.label}
-            delay={14 + i * 40}
-            top={f.top}
-            align={f.align}
-          />
-        ))}
+        {/* Flow 1 — SHORT power level -> dump */}
+        <Pill top="24%" appear={12} disappear={142} variant="dark" icon={<Dot color={COLORS.red} />}>
+          Price taps a {hi('SHORT', '#FF6B6B')} power level
+        </Pill>
+        <Pill top="41%" appear={42} disappear={142} variant="white">
+          Dashboard confirms {hi('RSI above 55', COLORS.red)}
+        </Pill>
+        <Pill top="58%" appear={74} disappear={142} variant="red" fontSize={56} icon={<Arrow dir="down" />}>
+          Market dumps
+        </Pill>
+
+        {/* Flow 2 — LONG power level -> pump */}
+        <Pill top="24%" appear={160} disappear={300} variant="dark" icon={<Dot color={COLORS.brand} />}>
+          Price taps a {hi('LONG', '#4ADE80')} power level
+        </Pill>
+        <Pill top="41%" appear={190} disappear={300} variant="white">
+          Dashboard confirms {hi('RSI below 49', COLORS.brandDark)}
+        </Pill>
+        <Pill top="58%" appear={222} disappear={300} variant="green" fontSize={56} icon={<Arrow dir="up" />}>
+          Market pumps
+        </Pill>
       </AbsoluteFill>
     </AbsoluteFill>
+  );
+};
+
+// "Get access + 4 extra indicators" — montage of real screenshots.
+const ACCESS_SHOTS = [
+  'img/gbpjpy-bands.jpg',
+  'img/gbpjpy-trend.jpg',
+  'img/settings.jpg',
+  'img/btc-profit.jpg',
+];
+const SceneAccess: React.FC = () => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const opacity = useSceneFade(14, 14);
+  const titleRise = spring({frame, fps, config: {damping: 16}});
+  return (
+    <FullText>
+      <div style={{opacity, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
+        <h1
+          style={{
+            ...headingStyle,
+            fontSize: 100,
+            transform: `translateY(${interpolate(titleRise, [0, 1], [-24, 0])}px)`,
+          }}
+        >
+          Get access
+        </h1>
+        <div
+          style={{
+            fontFamily,
+            fontWeight: 800,
+            fontSize: 54,
+            color: COLORS.brand,
+            marginTop: 10,
+            marginBottom: 48,
+          }}
+        >
+          + 4 extra indicators
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 28,
+            width: '100%',
+            padding: '0 14px',
+          }}
+        >
+          {ACCESS_SHOTS.map((src, i) => {
+            const pop = spring({frame: frame - (10 + i * 9), fps, config: {damping: 13, stiffness: 120}});
+            return (
+              <div
+                key={src}
+                style={{
+                  transform: `scale(${pop})`,
+                  opacity: pop,
+                  height: 560,
+                  borderRadius: 28,
+                  overflow: 'hidden',
+                  boxShadow: '0 30px 70px rgba(0,0,0,0.2)',
+                  background: '#fff',
+                }}
+              >
+                <Img src={staticFile(src)} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </FullText>
+  );
+};
+
+// ---- benefits icons ----
+const WhatsAppIcon: React.FC = () => (
+  <svg width="50" height="50" viewBox="0 0 24 24" fill="none">
+    <path
+      d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2Z"
+      fill="#25D366"
+    />
+    <path
+      d="M8.5 7.3c-.2-.5-.4-.5-.7-.5h-.5c-.2 0-.5.1-.7.3-.3.3-.9.9-.9 2.1s.9 2.4 1 2.6c.1.2 1.8 2.9 4.5 3.9 2.2.9 2.7.7 3.2.7.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.5-.3l-1.6-.8c-.2-.1-.4-.1-.6.1l-.6.8c-.1.2-.3.2-.5.1-.3-.1-1.1-.4-2-1.2-.7-.6-1.2-1.4-1.3-1.6-.1-.2 0-.4.1-.5l.4-.5c.1-.2.2-.3.3-.5 0-.2 0-.3 0-.5l-.7-1.8Z"
+      fill="#fff"
+    />
+  </svg>
+);
+const UpgradeIcon: React.FC = () => (
+  <svg width="46" height="46" viewBox="0 0 24 24" fill="none">
+    <path d="M12 3l3.5 5.5L21 10l-4.5 4 1 6L12 17l-5.5 3 1-6L3 10l5.5-1.5L12 3Z" fill={COLORS.brand} />
+  </svg>
+);
+const CommunityIcon: React.FC = () => (
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+    <circle cx="8" cy="9" r="3" fill={COLORS.brand} />
+    <circle cx="16.5" cy="10" r="2.5" fill={COLORS.brandDark} />
+    <path d="M2.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" fill={COLORS.brand} />
+    <path d="M14 19c0-2.4 1.6-4 3.5-4s3.9 1.4 4 4" fill={COLORS.brandDark} />
+  </svg>
+);
+
+const BenefitPill: React.FC<{
+  appear: number;
+  icon: React.ReactNode;
+  title: string;
+  sub: string;
+}> = ({appear, icon, title, sub}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  if (frame < appear) return null;
+  const pop = spring({frame: frame - appear, fps, config: {damping: 12, mass: 0.7, stiffness: 120}});
+  return (
+    <div
+      style={{
+        transform: `scale(${pop})`,
+        opacity: pop,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 28,
+        width: '92%',
+        padding: '30px 40px',
+        background: '#fff',
+        borderRadius: 44,
+        boxShadow: '0 24px 60px rgba(0,0,0,0.12)',
+      }}
+    >
+      <div
+        style={{
+          flexShrink: 0,
+          width: 96,
+          height: 96,
+          borderRadius: 26,
+          background: 'rgba(16,185,129,0.12)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {icon}
+      </div>
+      <div style={{textAlign: 'left'}}>
+        <div style={{fontFamily, fontWeight: 900, fontSize: 54, color: COLORS.ink, lineHeight: 1.05}}>
+          {title}
+        </div>
+        <div style={{fontFamily, fontWeight: 600, fontSize: 34, color: COLORS.inkSoft, marginTop: 6}}>
+          {sub}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// "Get the code, you also get" — community / upgrades / WhatsApp benefits.
+const SceneBenefits: React.FC = () => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const opacity = useSceneFade(14, 14);
+  const titleRise = spring({frame, fps, config: {damping: 16}});
+  return (
+    <FullText>
+      <div
+        style={{
+          opacity,
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 34,
+        }}
+      >
+        <h1
+          style={{
+            ...headingStyle,
+            fontSize: 82,
+            marginBottom: 6,
+            transform: `translateY(${interpolate(titleRise, [0, 1], [-24, 0])}px)`,
+          }}
+        >
+          Get the code,
+          <br />
+          you also get
+        </h1>
+        <BenefitPill
+          appear={20}
+          icon={<WhatsAppIcon />}
+          title="WhatsApp group"
+          sub="Daily market breakdowns posted"
+        />
+        <BenefitPill
+          appear={46}
+          icon={<UpgradeIcon />}
+          title="Free future upgrades"
+          sub="Every new indicator update, free"
+        />
+        <BenefitPill
+          appear={72}
+          icon={<CommunityIcon />}
+          title="A trading community"
+          sub="Talk & learn with fellow traders"
+        />
+      </div>
+    </FullText>
   );
 };
 
@@ -671,15 +884,16 @@ export const SaasAd: React.FC = () => {
         <SceneBrand />
       </Sequence>
 
-      {/* feature showcase over the real screen-recording (replaces the two
-          old structure/setups scenes; spans 17s-25s) */}
-      <Sequence
-        from={s.structure.from}
-        durationInFrames={
-          dur(s.structure.durationInSeconds) + dur(s.setups.durationInSeconds)
-        }
-      >
-        <SceneFeatures />
+      <Sequence from={s.howItWorks.from} durationInFrames={dur(s.howItWorks.durationInSeconds)}>
+        <SceneHowItWorks />
+      </Sequence>
+
+      <Sequence from={s.access.from} durationInFrames={dur(s.access.durationInSeconds)}>
+        <SceneAccess />
+      </Sequence>
+
+      <Sequence from={s.benefits.from} durationInFrames={dur(s.benefits.durationInSeconds)}>
+        <SceneBenefits />
       </Sequence>
 
       <Sequence from={s.endCard.from} durationInFrames={dur(s.endCard.durationInSeconds)}>
