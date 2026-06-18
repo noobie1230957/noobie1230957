@@ -21,18 +21,19 @@ export const WIDTH = 1080;
 export const HEIGHT = 1920;
 export const DURATION_IN_FRAMES = 37 * FPS;
 
-// Scene boundaries in frames (from) + durations in seconds.
+// Scene boundaries in frames (from + durationInFrames), frame-exact.
 export const SCENES = {
-  charts: {from: 0, durationInSeconds: 2},
-  messy: {from: 60, durationInSeconds: 2},
-  indicators: {from: 120, durationInSeconds: 2},
-  fakeSignals: {from: 180, durationInSeconds: 2},
-  identify: {from: 240, durationInSeconds: 2},
-  easy: {from: 300, durationInSeconds: 2},
-  money: {from: 360, durationInSeconds: 2},
-  brand: {from: 420, durationInSeconds: 1.5},
-  howItWorks: {from: 465, durationInSeconds: 9},
-  access: {from: 735, durationInSeconds: 5},
-  benefits: {from: 885, durationInSeconds: 5},
-  endCard: {from: 1035, durationInSeconds: 2.5},
+  charts: {from: 0, durationInFrames: 60},
+  messy: {from: 60, durationInFrames: 60},
+  indicators: {from: 120, durationInFrames: 50},
+  fakeSignals: {from: 170, durationInFrames: 50},
+  identify: {from: 220, durationInFrames: 50},
+  easy: {from: 270, durationInFrames: 50},
+  money: {from: 320, durationInFrames: 55},
+  brand: {from: 375, durationInFrames: 45},
+  howItWorks: {from: 420, durationInFrames: 270},
+  access: {from: 690, durationInFrames: 135},
+  benefits: {from: 825, durationInFrames: 150},
+  testimonial: {from: 975, durationInFrames: 60},
+  endCard: {from: 1035, durationInFrames: 75},
 } as const;

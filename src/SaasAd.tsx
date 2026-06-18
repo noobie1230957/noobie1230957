@@ -983,40 +983,97 @@ const SceneEndCard: React.FC = () => {
   );
 };
 
+// Real client testimonial — shows the WhatsApp voice-note recording.
+// Audio comes from the mixed soundtrack (video is muted here).
+const SceneTestimonial: React.FC = () => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const opacity = useSceneFade(8, 8);
+  const pop = spring({frame, fps, config: {damping: 14, mass: 0.8}});
+  return (
+    <FullText>
+      <Glow color="rgba(16,185,129,0.35)" size={1100} intensity={0.5} />
+      <div
+        style={{
+          opacity,
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 30,
+        }}
+      >
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 14,
+            padding: '14px 30px',
+            background: COLORS.ink,
+            color: '#fff',
+            borderRadius: 999,
+            fontFamily,
+            fontWeight: 800,
+            fontSize: 38,
+          }}
+        >
+          <span style={{width: 14, height: 14, borderRadius: 999, background: COLORS.brand}} />
+          Real client message
+        </div>
+        <div
+          style={{
+            width: '92%',
+            borderRadius: 36,
+            overflow: 'hidden',
+            boxShadow: '0 30px 80px rgba(0,0,0,0.22)',
+            transform: `scale(${interpolate(pop, [0, 1], [0.86, 1])})`,
+            background: '#0B141A',
+          }}
+        >
+          <OffthreadVideo
+            src={staticFile('img/client-clip.mp4')}
+            muted
+            style={{width: '100%', height: 'auto', display: 'block'}}
+          />
+        </div>
+      </div>
+    </FullText>
+  );
+};
+
 // ---------- master timeline ----------
 
 export const SaasAd: React.FC = () => {
   const s = SCENES;
-  const dur = (sec: number) => sec * FPS;
   return (
     <AbsoluteFill style={{backgroundColor: COLORS.bg}}>
       <Audio src={staticFile('audio/voiceover-mix.m4a')} volume={1} />
 
-      <Sequence from={s.charts.from} durationInFrames={dur(s.charts.durationInSeconds)}>
+      <Sequence from={s.charts.from} durationInFrames={s.charts.durationInFrames}>
         <SceneCharts />
       </Sequence>
 
-      <Sequence from={s.messy.from} durationInFrames={dur(s.messy.durationInSeconds)}>
+      <Sequence from={s.messy.from} durationInFrames={s.messy.durationInFrames}>
         <SceneMessy />
       </Sequence>
 
-      <Sequence from={s.indicators.from} durationInFrames={dur(s.indicators.durationInSeconds)}>
+      <Sequence from={s.indicators.from} durationInFrames={s.indicators.durationInFrames}>
         <SceneIndicators />
       </Sequence>
 
-      <Sequence from={s.fakeSignals.from} durationInFrames={dur(s.fakeSignals.durationInSeconds)}>
+      <Sequence from={s.fakeSignals.from} durationInFrames={s.fakeSignals.durationInFrames}>
         <SceneFakeSignals />
       </Sequence>
 
-      <Sequence from={s.identify.from} durationInFrames={dur(s.identify.durationInSeconds)}>
+      <Sequence from={s.identify.from} durationInFrames={s.identify.durationInFrames}>
         <SceneIdentify />
       </Sequence>
 
-      <Sequence from={s.easy.from} durationInFrames={dur(s.easy.durationInSeconds)}>
+      <Sequence from={s.easy.from} durationInFrames={s.easy.durationInFrames}>
         <ImageStatement image="img/good-chart.jpg" lines={['Trading should', 'be easy']} />
       </Sequence>
 
-      <Sequence from={s.money.from} durationInFrames={dur(s.money.durationInSeconds)}>
+      <Sequence from={s.money.from} durationInFrames={s.money.durationInFrames}>
         <ImageStatement
           image="img/profit.jpg"
           lines={['It should help you', 'make money']}
@@ -1024,23 +1081,27 @@ export const SaasAd: React.FC = () => {
         />
       </Sequence>
 
-      <Sequence from={s.brand.from} durationInFrames={dur(s.brand.durationInSeconds)}>
+      <Sequence from={s.brand.from} durationInFrames={s.brand.durationInFrames}>
         <SceneBrand />
       </Sequence>
 
-      <Sequence from={s.howItWorks.from} durationInFrames={dur(s.howItWorks.durationInSeconds)}>
+      <Sequence from={s.howItWorks.from} durationInFrames={s.howItWorks.durationInFrames}>
         <SceneHowItWorks />
       </Sequence>
 
-      <Sequence from={s.access.from} durationInFrames={dur(s.access.durationInSeconds)}>
+      <Sequence from={s.access.from} durationInFrames={s.access.durationInFrames}>
         <SceneAccess />
       </Sequence>
 
-      <Sequence from={s.benefits.from} durationInFrames={dur(s.benefits.durationInSeconds)}>
+      <Sequence from={s.benefits.from} durationInFrames={s.benefits.durationInFrames}>
         <SceneBenefits />
       </Sequence>
 
-      <Sequence from={s.endCard.from} durationInFrames={dur(s.endCard.durationInSeconds)}>
+      <Sequence from={s.testimonial.from} durationInFrames={s.testimonial.durationInFrames}>
+        <SceneTestimonial />
+      </Sequence>
+
+      <Sequence from={s.endCard.from} durationInFrames={s.endCard.durationInFrames}>
         <SceneEndCard />
       </Sequence>
     </AbsoluteFill>
