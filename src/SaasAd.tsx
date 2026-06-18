@@ -506,20 +506,43 @@ const SceneFeatures: React.FC = () => {
   );
 };
 
+const InstagramIcon: React.FC<{size?: number; color?: string}> = ({
+  size = 46,
+  color = '#fff',
+}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" stroke={color} strokeWidth="2" />
+    <circle cx="12" cy="12" r="4.2" stroke={color} strokeWidth="2" />
+    <circle cx="17.4" cy="6.6" r="1.3" fill={color} />
+  </svg>
+);
+
+const GlobeIcon: React.FC<{size?: number; color?: string}> = ({
+  size = 42,
+  color = COLORS.brand,
+}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="9.2" stroke={color} strokeWidth="2" />
+    <ellipse cx="12" cy="12" rx="4" ry="9.2" stroke={color} strokeWidth="2" />
+    <line x1="3" y1="12" x2="21" y2="12" stroke={color} strokeWidth="2" />
+  </svg>
+);
+
 const SceneEndCard: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const opacity = useSceneFade(14, 6);
   const brandPop = spring({frame, fps, config: {damping: 12, mass: 0.9}});
-  const tagRise = spring({frame: frame - 12, fps, config: {damping: 16}});
-  const ctaPop = spring({frame: frame - 26, fps, config: {damping: 9, stiffness: 130}});
+  const tagRise = spring({frame: frame - 10, fps, config: {damping: 16}});
+  const igPop = spring({frame: frame - 22, fps, config: {damping: 11, stiffness: 130}});
+  const webRise = spring({frame: frame - 36, fps, config: {damping: 16}});
   return (
     <FullText>
       <div style={{opacity, textAlign: 'center'}}>
         <div
           style={{
             ...headingStyle,
-            fontSize: 128,
+            fontSize: 112,
             color: COLORS.brand,
             transform: `scale(${interpolate(brandPop, [0, 1], [0.7, 1])})`,
           }}
@@ -529,7 +552,7 @@ const SceneEndCard: React.FC = () => {
         <div
           style={{
             ...headingStyle,
-            fontSize: 92,
+            fontSize: 80,
             letterSpacing: '0.12em',
             color: COLORS.ink,
           }}
@@ -540,31 +563,65 @@ const SceneEndCard: React.FC = () => {
           style={{
             fontFamily,
             fontWeight: 600,
-            fontSize: 52,
+            fontSize: 44,
             color: COLORS.inkSoft,
-            marginTop: 36,
+            marginTop: 26,
             transform: `translateY(${interpolate(tagRise, [0, 1], [24, 0])}px)`,
             opacity: tagRise,
           }}
         >
           Your trades, organized
         </div>
+
+        {/* Instagram CTA */}
         <div
           style={{
-            display: 'inline-block',
-            marginTop: 56,
-            padding: '30px 64px',
-            background: COLORS.brand,
+            marginTop: 52,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 22,
+            padding: '26px 48px',
+            background:
+              'linear-gradient(95deg, #F58529 0%, #DD2A7B 50%, #8134AF 100%)',
             color: '#FFFFFF',
-            fontFamily,
-            fontWeight: 800,
-            fontSize: 58,
             borderRadius: 999,
-            boxShadow: '0 24px 60px rgba(16,185,129,0.4)',
-            transform: `scale(${interpolate(ctaPop, [0, 1], [0.5, 1])})`,
+            boxShadow: '0 24px 60px rgba(221,42,123,0.4)',
+            transform: `scale(${interpolate(igPop, [0, 1], [0.5, 1])})`,
+            opacity: igPop,
           }}
         >
-          Start your 3-Day Trial
+          <InstagramIcon />
+          <div style={{textAlign: 'left'}}>
+            <div style={{fontFamily, fontWeight: 800, fontSize: 50, lineHeight: 1.05}}>
+              @tuxtradingalgo_
+            </div>
+            <div style={{fontFamily, fontWeight: 600, fontSize: 32, opacity: 0.95}}>
+              DM for a free 3-day trial
+            </div>
+          </div>
+        </div>
+
+        {/* Website */}
+        <div
+          style={{
+            marginTop: 34,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 6,
+            transform: `translateY(${interpolate(webRise, [0, 1], [24, 0])}px)`,
+            opacity: webRise,
+          }}
+        >
+          <div style={{display: 'inline-flex', alignItems: 'center', gap: 16}}>
+            <GlobeIcon />
+            <span style={{fontFamily, fontWeight: 800, fontSize: 50, color: COLORS.ink}}>
+              Tuxtradingalgo.com
+            </span>
+          </div>
+          <span style={{fontFamily, fontWeight: 600, fontSize: 32, color: COLORS.inkSoft}}>
+            Visit for more information
+          </span>
         </div>
       </div>
     </FullText>
