@@ -72,12 +72,13 @@ const SceneCharts: React.FC = () => {
       <h1
         style={{
           ...headingStyle,
-          fontSize: 180,
+          fontSize: 150,
+          letterSpacing: '0.02em',
           opacity,
           transform: `translateY(${interpolate(rise, [0, 1], [40, 0])}px)`,
         }}
       >
-        Charts
+        TRADING
       </h1>
     </FullText>
   );
@@ -182,10 +183,73 @@ const SceneIndicators: React.FC = () => {
 };
 
 const SceneFakeSignals: React.FC = () => {
+  const frame = useCurrentFrame();
+  const {durationInFrames} = useVideoConfig();
+  const opacity = useSceneFade(8, 8);
+  const kenBurns = interpolate(frame, [0, durationInFrames], [1.12, 1.24]);
   return (
-    <FullText bg={COLORS.bgDark}>
-      <GlitchText text="Too many fake signals" fontSize={120} />
-    </FullText>
+    <AbsoluteFill style={{backgroundColor: COLORS.bgDark, overflow: 'hidden'}}>
+      <AbsoluteFill style={{opacity}}>
+        <Img
+          src={staticFile('img/fake-signals.jpg')}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${kenBurns})`,
+          }}
+        />
+      </AbsoluteFill>
+      {/* dark scrim so the glitch text pops */}
+      <AbsoluteFill style={{backgroundColor: 'rgba(8,8,8,0.62)', opacity}} />
+      <AbsoluteFill
+        style={{justifyContent: 'center', alignItems: 'center', padding: '0 70px'}}
+      >
+        <GlitchText text="Too many fake signals" fontSize={120} />
+      </AbsoluteFill>
+    </AbsoluteFill>
+  );
+};
+
+const SceneIdentify: React.FC = () => {
+  const frame = useCurrentFrame();
+  const {fps, durationInFrames} = useVideoConfig();
+  const opacity = useSceneFade(12, 12);
+  const rise = spring({frame, fps, config: {damping: 16, mass: 0.8}});
+  const kenBurns = interpolate(frame, [0, durationInFrames], [1.12, 1.24]);
+  return (
+    <AbsoluteFill style={{backgroundColor: COLORS.bgDark, overflow: 'hidden'}}>
+      <AbsoluteFill style={{opacity}}>
+        <Img
+          src={staticFile('img/fake-signals.jpg')}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${kenBurns})`,
+          }}
+        />
+      </AbsoluteFill>
+      <AbsoluteFill style={{backgroundColor: 'rgba(8,8,8,0.55)', opacity}} />
+      <AbsoluteFill
+        style={{justifyContent: 'center', alignItems: 'center', padding: '0 70px'}}
+      >
+        <h1
+          style={{
+            ...headingStyle,
+            color: '#FFFFFF',
+            fontSize: 110,
+            opacity,
+            transform: `translateY(${interpolate(rise, [0, 1], [36, 0])}px)`,
+            textShadow: '0 10px 40px rgba(0,0,0,0.6)',
+          }}
+        >
+          Can't identify
+          <br />
+          the move
+        </h1>
+      </AbsoluteFill>
+    </AbsoluteFill>
   );
 };
 
@@ -475,7 +539,7 @@ export const SaasAd: React.FC = () => {
       </Sequence>
 
       <Sequence from={s.identify.from} durationInFrames={dur(s.identify.durationInSeconds)}>
-        <SceneSimpleLine lines={["Can't identify", 'the move']} />
+        <SceneIdentify />
       </Sequence>
 
       <Sequence from={s.easy.from} durationInFrames={dur(s.easy.durationInSeconds)}>
