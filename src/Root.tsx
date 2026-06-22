@@ -1,7 +1,7 @@
 import React from 'react';
 import {Composition} from 'remotion';
 import {SaasAd} from './SaasAd';
-import {SamsungAd, SAMSUNG_DURATION} from './SamsungAd';
+import {SamsungAd, SAMSUNG_DURATION, SAMSUNG_WIDTH, SAMSUNG_HEIGHT} from './SamsungAd';
 import {DURATION_IN_FRAMES, FPS, HEIGHT, WIDTH} from './theme';
 
 export const RemotionRoot: React.FC = () => {
@@ -20,8 +20,8 @@ export const RemotionRoot: React.FC = () => {
         component={SamsungAd}
         durationInFrames={SAMSUNG_DURATION}
         fps={FPS}
-        width={WIDTH}
-        height={HEIGHT}
+        width={SAMSUNG_WIDTH}
+        height={SAMSUNG_HEIGHT}
       />
     </>
   );

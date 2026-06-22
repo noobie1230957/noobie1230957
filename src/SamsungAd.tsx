@@ -1,9 +1,11 @@
 import React from 'react';
 import {
   AbsoluteFill,
+  Audio,
   interpolate,
   Sequence,
   spring,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
@@ -24,6 +26,8 @@ const C = {
 
 const FPS = 30;
 export const SAMSUNG_DURATION = 22 * FPS; // 660
+export const SAMSUNG_WIDTH = 1920;
+export const SAMSUNG_HEIGHT = 1080;
 
 const base: React.CSSProperties = {
   fontFamily,
@@ -296,10 +300,10 @@ const NotesCard: React.FC = () => {
         style={{
           opacity: o,
           transform: `translateY(${y}px) scale(${scale})`,
-          width: 900,
-          height: 1100,
+          width: 1180,
+          height: 760,
           background: '#0C0C0E',
-          borderRadius: 60,
+          borderRadius: 56,
           padding: 48,
           display: 'flex',
           flexDirection: 'column',
@@ -405,6 +409,7 @@ export const SamsungAd: React.FC = () => {
   );
   return (
     <AbsoluteFill style={{backgroundColor: C.light}}>
+      <Audio src={staticFile('audio/samsung-mix.m4a')} volume={1} />
       {seq(0, 90, <Hook />)}
       {seq(90, 120, <TimerCard />)}
       {seq(210, 90, <SearchScene />)}
