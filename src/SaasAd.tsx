@@ -264,8 +264,8 @@ const SceneIndicators: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
   const rise = spring({frame, fps, config: {damping: 16}});
-  // slow zoom on the busy chart so it feels alive behind the text
-  const kenBurns = interpolate(frame, [0, durationInFrames], [1.18, 1.32]);
+  // gentle drift; show the whole chart (contain) so nothing is cropped off
+  const kenBurns = interpolate(frame, [0, durationInFrames], [1.0, 1.05]);
   return (
     <AbsoluteFill style={{backgroundColor: COLORS.bg, overflow: 'hidden'}}>
       {/* busy real chart background */}
@@ -275,7 +275,7 @@ const SceneIndicators: React.FC = () => {
           style={{
             width: '100%',
             height: '100%',
-            objectFit: 'cover',
+            objectFit: 'contain',
             transform: `scale(${kenBurns})`,
           }}
         />
@@ -325,7 +325,7 @@ const SceneFakeSignals: React.FC = () => {
   const frame = useCurrentFrame();
   const {durationInFrames} = useVideoConfig();
   const opacity = useSceneFade(8, 8);
-  const kenBurns = interpolate(frame, [0, durationInFrames], [1.12, 1.24]);
+  const kenBurns = interpolate(frame, [0, durationInFrames], [1.0, 1.05]);
   return (
     <AbsoluteFill style={{backgroundColor: COLORS.bgDark, overflow: 'hidden'}}>
       <AbsoluteFill style={{opacity}}>
@@ -334,7 +334,7 @@ const SceneFakeSignals: React.FC = () => {
           style={{
             width: '100%',
             height: '100%',
-            objectFit: 'cover',
+            objectFit: 'contain',
             transform: `scale(${kenBurns})`,
           }}
         />
@@ -355,7 +355,7 @@ const SceneIdentify: React.FC = () => {
   const {fps, durationInFrames} = useVideoConfig();
   const opacity = useSceneFade(12, 12);
   const rise = spring({frame, fps, config: {damping: 16, mass: 0.8}});
-  const kenBurns = interpolate(frame, [0, durationInFrames], [1.12, 1.24]);
+  const kenBurns = interpolate(frame, [0, durationInFrames], [1.0, 1.05]);
   return (
     <AbsoluteFill style={{backgroundColor: COLORS.bgDark, overflow: 'hidden'}}>
       <AbsoluteFill style={{opacity}}>
@@ -364,7 +364,7 @@ const SceneIdentify: React.FC = () => {
           style={{
             width: '100%',
             height: '100%',
-            objectFit: 'cover',
+            objectFit: 'contain',
             transform: `scale(${kenBurns})`,
           }}
         />
@@ -439,12 +439,13 @@ const ImageStatement: React.FC<{
   lines: string[];
   highlightLast?: boolean;
   fontSize?: number;
-}> = ({image, lines, highlightLast, fontSize = 100}) => {
+  fit?: 'cover' | 'contain';
+}> = ({image, lines, highlightLast, fontSize = 100, fit = 'cover'}) => {
   const frame = useCurrentFrame();
   const {fps, durationInFrames} = useVideoConfig();
   const opacity = useSceneFade(12, 12);
   const rise = spring({frame, fps, config: {damping: 16, mass: 0.8}});
-  const kenBurns = interpolate(frame, [0, durationInFrames], [1.1, 1.22]);
+  const kenBurns = interpolate(frame, [0, durationInFrames], [1.0, 1.05]);
   const pop = spring({frame: frame - 16, fps, config: {damping: 10, stiffness: 130}});
 
   return (
@@ -455,7 +456,7 @@ const ImageStatement: React.FC<{
           style={{
             width: '100%',
             height: '100%',
-            objectFit: 'cover',
+            objectFit: fit,
             transform: `scale(${kenBurns})`,
           }}
         />
@@ -607,7 +608,7 @@ const SceneHowItWorks: React.FC = () => {
         <OffthreadVideo
           src={staticFile('img/dashboard-clip.mp4')}
           muted
-          style={{width: '100%', height: '100%', objectFit: 'cover'}}
+          style={{width: '100%', height: '100%', objectFit: 'contain'}}
         />
       </AbsoluteFill>
       <AbsoluteFill style={{backgroundColor: 'rgba(8,10,14,0.32)', opacity}} />
@@ -636,24 +637,24 @@ const SceneHowItWorks: React.FC = () => {
 
       <AbsoluteFill style={{opacity}}>
         {/* Flow 1 — SHORT power level -> dump */}
-        <Pill top="24%" appear={8} disappear={116} variant="dark" icon={<Dot color={COLORS.red} />}>
+        <Pill top="24%" appear={6} disappear={104} variant="dark" icon={<Dot color={COLORS.red} />}>
           Price taps a {hi('SHORT', '#FF6B6B')} power level
         </Pill>
-        <Pill top="41%" appear={34} disappear={116} variant="white">
+        <Pill top="41%" appear={28} disappear={104} variant="white">
           Dashboard confirms {hi('RSI above 55', COLORS.red)}
         </Pill>
-        <Pill top="58%" appear={62} disappear={116} variant="red" fontSize={56} icon={<Arrow dir="down" />}>
+        <Pill top="58%" appear={50} disappear={104} variant="red" fontSize={56} icon={<Arrow dir="down" />}>
           Market dumps
         </Pill>
 
         {/* Flow 2 — LONG power level -> pump */}
-        <Pill top="24%" appear={130} disappear={250} variant="dark" icon={<Dot color={COLORS.brand} />}>
+        <Pill top="24%" appear={116} disappear={228} variant="dark" icon={<Dot color={COLORS.brand} />}>
           Price taps a {hi('LONG', '#4ADE80')} power level
         </Pill>
-        <Pill top="41%" appear={156} disappear={250} variant="white">
+        <Pill top="41%" appear={140} disappear={228} variant="white">
           Dashboard confirms {hi('RSI below 49', COLORS.brandDark)}
         </Pill>
-        <Pill top="58%" appear={184} disappear={250} variant="green" fontSize={56} icon={<Arrow dir="up" />}>
+        <Pill top="58%" appear={164} disappear={228} variant="green" fontSize={56} icon={<Arrow dir="up" />}>
           Market pumps
         </Pill>
       </AbsoluteFill>
@@ -721,7 +722,7 @@ const SceneAccess: React.FC = () => {
                   background: '#fff',
                 }}
               >
-                <Img src={staticFile(src)} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                <Img src={staticFile(src)} style={{width: '100%', height: '100%', objectFit: 'contain'}} />
               </div>
             );
           })}
@@ -1024,6 +1025,68 @@ const SceneEndCard: React.FC = () => {
   );
 };
 
+// Confirmation dashboard with a 3D turn-in + rows that build into place.
+const SceneDashboard: React.FC = () => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const opacity = useSceneFade(10, 10);
+  const inS = spring({frame, fps, config: {damping: 15, mass: 1, stiffness: 80}});
+  const rotY = interpolate(inS, [0, 1], [-72, 0]);
+  const scale = interpolate(inS, [0, 1], [0.72, 1]);
+  // rows "fall into place": reveal top -> bottom
+  const reveal = interpolate(frame, [4, 40], [0, 100], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+  const textRise = spring({frame: frame - 20, fps, config: {damping: 16}});
+  return (
+    <FullText>
+      <Glow color="rgba(16,185,129,0.4)" size={1200} intensity={0.55} />
+      <div
+        style={{
+          opacity,
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 48,
+        }}
+      >
+        <h1
+          style={{
+            ...headingStyle,
+            fontSize: 68,
+            transform: `translateY(${interpolate(textRise, [0, 1], [-22, 0])}px)`,
+          }}
+        >
+          The dashboard gives you
+          <br />
+          exactly what you need
+          <br />
+          before you enter a trade
+        </h1>
+        <div style={{perspective: 1500, width: '100%', display: 'flex', justifyContent: 'center'}}>
+          <div
+            style={{
+              transform: `rotateY(${rotY}deg) scale(${scale})`,
+              clipPath: `inset(0 0 ${100 - reveal}% 0 round 22px)`,
+              borderRadius: 24,
+              overflow: 'hidden',
+              boxShadow: '0 40px 100px rgba(0,0,0,0.35)',
+              width: '96%',
+            }}
+          >
+            <Img
+              src={staticFile('img/dashboard-panel.jpg')}
+              style={{width: '100%', height: 'auto', display: 'block'}}
+            />
+          </div>
+        </div>
+      </div>
+    </FullText>
+  );
+};
+
 // Real client testimonial — shows the WhatsApp voice-note recording.
 // Audio comes from the mixed soundtrack (video is muted here).
 const SceneTestimonial: React.FC = () => {
@@ -1115,6 +1178,7 @@ export const SaasAd: React.FC = () => {
           image="img/good-chart.jpg"
           lines={['Trading should', 'be easy']}
           fontSize={120}
+          fit="contain"
         />
       </Sequence>
 
@@ -1132,6 +1196,10 @@ export const SaasAd: React.FC = () => {
 
       <Sequence from={s.howItWorks.from} durationInFrames={s.howItWorks.durationInFrames}>
         <SceneHowItWorks />
+      </Sequence>
+
+      <Sequence from={s.dashboard.from} durationInFrames={s.dashboard.durationInFrames}>
+        <SceneDashboard />
       </Sequence>
 
       <Sequence from={s.access.from} durationInFrames={s.access.durationInFrames}>
