@@ -20,8 +20,14 @@
 //|  closest faithful reproduction, not a pixel clone.               |
 //+------------------------------------------------------------------+
 #property copyright "TUX EA"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
+//  v1.10 changelog:
+//   - O(N) series builders (rolling stdev + monotonic-deque hi/lo/scale01);
+//     identical numeric output, much faster warmup pass.
+//   - Real economic-calendar news filter (MT5 native, live only).
+//   - CSV trade journal via OnTradeTransaction.
+//   - Cached chop ATR handle (no per-tick handle churn).
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -207,10 +213,21 @@ input int    InpNewsStartMin   = 28;     // Blackout start minute
 input int    InpNewsEndHour    = 13;     // Blackout end hour
 input int    InpNewsEndMin     = 35;     // Blackout end minute
 
+input group "===== News filter (economic calendar) ====="
+input bool   InpUseNewsCalendar = false; // Use MT5 economic calendar (LIVE only, not tester)
+input int    InpNewsMinImportance = 2;   // Min importance: 1=Low 2=Moderate 3=High
+input int    InpNewsBeforeMin   = 30;    // Block this many minutes BEFORE an event
+input int    InpNewsAfterMin    = 30;    // Block this many minutes AFTER an event
+input bool   InpNewsThisSymbolOnly = true;// Only events for this symbol's currencies
+
 input group "===== Daily / Drawdown protection ====="
 input double InpMaxDailyLoss   = 0.0;    // Max daily loss ($), 0=off
 input int    InpMaxDailyTrades = 0;      // Max trades per day, 0=off
 input double InpMaxDrawdownPct = 0.0;    // Max equity DD from peak (%), 0=off
+
+input group "===== Logging ====="
+input bool   InpLogTrades      = true;   // Write closed deals to a CSV journal
+input string InpLogFileName    = "";     // CSV file name ("" = auto per symbol)
 
 input group "===== Execution ====="
 input int    InpMaxBars        = 4000;   // History bars for ML warmup
@@ -258,12 +275,16 @@ double sigSwingLow   = 0.0;
 double bankO[][7], bankH[][7], bankL[][7], bankC[][7], bankAll[][7];
 int    cntO, cntH, cntL, cntC, cntAll;
 
-// chop / adx handle
-int hADX = INVALID_HANDLE;
+// chop / adx handles (cached once in OnInit)
+int hADX     = INVALID_HANDLE;
+int hATRchop = INVALID_HANDLE;
 
 // partial-close state (single position per symbol assumption)
 bool g_partial1Done = false;
 bool g_partial2Done = false;
+
+// logging
+string g_logFile = "";
 
 //+------------------------------------------------------------------+
 //|  Small math helpers                                              |
@@ -315,43 +336,50 @@ void calcRMA(const double &src[], double &out[], int len, int n)
      }
   }
 
+// O(N) rolling population stdev (identical output to the naive two-pass).
 void calcStdev(const double &src[], double &out[], int len, int n)
   {
    ArrayResize(out,n);
+   double s=0.0,s2=0.0;
    for(int i=0;i<n;i++)
      {
-      int start = (i+1<len)?0:(i-len+1);
-      int cnt   = i-start+1;
-      double mean=0;
-      for(int j=start;j<=i;j++) mean+=src[j];
-      mean/=cnt;
-      double v=0;
-      for(int j=start;j<=i;j++){ double d=src[j]-mean; v+=d*d; }
-      out[i] = MathSqrt(v/cnt);          // population stdev (Pine default)
+      s+=src[i]; s2+=src[i]*src[i];
+      if(i>=len){ s-=src[i-len]; s2-=src[i-len]*src[i-len]; }
+      int cnt=(i+1<len)?(i+1):len;
+      double mean=s/cnt;
+      double var=s2/cnt-mean*mean;
+      if(var<0) var=0;                   // guard tiny negative from rounding
+      out[i]=MathSqrt(var);              // population stdev (Pine default)
      }
   }
 
+// O(N) sliding-window maximum via monotonic deque (identical output).
 void calcHighest(const double &src[], double &out[], int len, int n)
   {
    ArrayResize(out,n);
+   int dq[]; ArrayResize(dq,n);          // stores indices, values descending
+   int head=0,tail=0;
    for(int i=0;i<n;i++)
      {
-      int start=(i+1<len)?0:(i-len+1);
-      double h=src[start];
-      for(int j=start+1;j<=i;j++) if(src[j]>h) h=src[j];
-      out[i]=h;
+      while(head<tail && dq[head] < i-len+1) head++;          // drop out-of-window
+      while(head<tail && src[dq[tail-1]] <= src[i]) tail--;   // keep descending
+      dq[tail++]=i;
+      out[i]=src[dq[head]];
      }
   }
 
+// O(N) sliding-window minimum via monotonic deque (identical output).
 void calcLowest(const double &src[], double &out[], int len, int n)
   {
    ArrayResize(out,n);
+   int dq[]; ArrayResize(dq,n);          // stores indices, values ascending
+   int head=0,tail=0;
    for(int i=0;i<n;i++)
      {
-      int start=(i+1<len)?0:(i-len+1);
-      double l=src[start];
-      for(int j=start+1;j<=i;j++) if(src[j]<l) l=src[j];
-      out[i]=l;
+      while(head<tail && dq[head] < i-len+1) head++;
+      while(head<tail && src[dq[tail-1]] >= src[i]) tail--;
+      dq[tail++]=i;
+      out[i]=src[dq[head]];
      }
   }
 
@@ -393,17 +421,15 @@ void calcRSI(const double &c[], double &out[], int len, int n)
      }
   }
 
-// scale01 over rolling window (Pine: lowest/highest over len)
+// scale01 over rolling window (Pine: lowest/highest over len) -- O(N) via deque
 void calcScale01(const double &src[], double &out[], int len, int n)
   {
+   double lo[],hi[];
+   calcLowest(src,lo,len,n);
+   calcHighest(src,hi,len,n);
    ArrayResize(out,n);
    for(int i=0;i<n;i++)
-     {
-      int start=(i+1<len)?0:(i-len+1);
-      double lo=src[start],hi=src[start];
-      for(int j=start+1;j<=i;j++){ if(src[j]<lo)lo=src[j]; if(src[j]>hi)hi=src[j]; }
-      out[i] = (hi==lo)?0.5:clampd((src[i]-lo)/(hi-lo),0.0,1.0);
-     }
+      out[i] = (hi[i]==lo[i])?0.5:clampd((src[i]-lo[i])/(hi[i]-lo[i]),0.0,1.0);
   }
 
 //+------------------------------------------------------------------+
@@ -1243,6 +1269,47 @@ bool NewsOK()
    return !(cur>=s || cur<=e);
   }
 
+//+------------------------------------------------------------------+
+//|  Economic-calendar news filter (MT5 native, LIVE only)           |
+//|  Returns true if it is SAFE to trade (no high-impact event near).|
+//+------------------------------------------------------------------+
+bool NewsCalendarHitsCurrency(const string ccy,const datetime now)
+  {
+   MqlCalendarValue values[];
+   datetime from = now - (datetime)(InpNewsAfterMin*60);
+   datetime to   = now + (datetime)(InpNewsBeforeMin*60);
+   int cnt = CalendarValueHistory(values, from, to, NULL, ccy);
+   for(int i=0;i<cnt;i++)
+     {
+      MqlCalendarEvent ev;
+      if(!CalendarEventById(values[i].event_id, ev)) continue;
+      if((int)ev.importance < InpNewsMinImportance) continue;       // skip low-impact
+      datetime et = values[i].time;
+      if(now >= et - (datetime)(InpNewsBeforeMin*60) &&
+         now <= et + (datetime)(InpNewsAfterMin*60))
+         return true;                                               // inside blackout
+     }
+   return false;
+  }
+
+bool NewsCalendarOK()
+  {
+   if(!InpUseNewsCalendar) return true;
+   // The economic calendar is not populated inside the Strategy Tester.
+   if(MQLInfoInteger(MQL_TESTER)) return true;
+   datetime now = TimeCurrent();
+   if(InpNewsThisSymbolOnly)
+     {
+      string base = SymbolInfoString(_Symbol,SYMBOL_CURRENCY_BASE);
+      string prof = SymbolInfoString(_Symbol,SYMBOL_CURRENCY_PROFIT);
+      if(base!="" && NewsCalendarHitsCurrency(base,now)) return false;
+      if(prof!="" && prof!=base && NewsCalendarHitsCurrency(prof,now)) return false;
+      return true;
+     }
+   // all currencies
+   return !NewsCalendarHitsCurrency(NULL,now);
+  }
+
 bool ChopOK()
   {
    if(!InpUseChopFilter) return true;
@@ -1252,9 +1319,10 @@ bool ChopOK()
       double adx[]; if(CopyBuffer(hADX,0,1,1,adx)==1)
          if(adx[0]<InpAdxMin) return false;
      }
-   // ATR compression: current ATR vs average ATR
+   // ATR compression: current ATR vs average ATR (cached handle)
    double atrArr[];
-   if(CopyBuffer(iATR(_Symbol,_Period,14),0,1,InpAtrCompPeriod,atrArr)==InpAtrCompPeriod)
+   if(hATRchop!=INVALID_HANDLE &&
+      CopyBuffer(hATRchop,0,1,InpAtrCompPeriod,atrArr)==InpAtrCompPeriod)
      {
       double sum=0; for(int i=0;i<InpAtrCompPeriod;i++) sum+=atrArr[i];
       double avg=sum/InpAtrCompPeriod;
@@ -1340,7 +1408,8 @@ void EvaluateSignals()
    // (Pine exit = trend flip / close beyond line -> covered above & by kinetic SL)
 
    // ===== 3) Entry signals require gating filters =====
-   bool baseOK = DailyGuardsOK() && SpreadOK() && VolatilityOK() && SessionOK() && NewsOK() && ChopOK();
+   bool baseOK = DailyGuardsOK() && SpreadOK() && VolatilityOK() && SessionOK()
+                 && NewsOK() && NewsCalendarOK() && ChopOK();
    if(!baseOK) return;
 
    // LONG POWER
@@ -1365,6 +1434,67 @@ void EvaluateSignals()
   }
 
 //+------------------------------------------------------------------+
+//|  CSV trade journal (one row per closed deal)                     |
+//+------------------------------------------------------------------+
+void InitLog()
+  {
+   if(!InpLogTrades) return;
+   g_logFile = (InpLogFileName!="") ? InpLogFileName
+             : StringFormat("TUX_EA_%s_%d.csv",_Symbol,(int)InpMagic);
+   // create header once
+   if(!FileIsExist(g_logFile,FILE_COMMON))
+     {
+      int h=FileOpen(g_logFile,FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON,';');
+      if(h!=INVALID_HANDLE)
+        {
+         FileWrite(h,"time","symbol","entry/exit","type","volume",
+                     "price","profit","swap","commission","comment");
+         FileClose(h);
+        }
+     }
+  }
+
+void LogDeal(ulong deal)
+  {
+   if(!InpLogTrades || g_logFile=="") return;
+   if(!HistoryDealSelect(deal)) return;
+   if(HistoryDealGetString(deal,DEAL_SYMBOL)!=_Symbol) return;
+   if((long)HistoryDealGetInteger(deal,DEAL_MAGIC)!=InpMagic) return;
+
+   long   entry = HistoryDealGetInteger(deal,DEAL_ENTRY);
+   long   dtype = HistoryDealGetInteger(deal,DEAL_TYPE);
+   string sentry= (entry==DEAL_ENTRY_IN)?"IN":(entry==DEAL_ENTRY_OUT)?"OUT":
+                  (entry==DEAL_ENTRY_INOUT)?"REVERSE":"OUT_BY";
+   string stype = (dtype==DEAL_TYPE_BUY)?"BUY":(dtype==DEAL_TYPE_SELL)?"SELL":"OTHER";
+
+   int h=FileOpen(g_logFile,FILE_READ|FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON,';');
+   if(h==INVALID_HANDLE) return;
+   FileSeek(h,0,SEEK_END);
+   FileWrite(h,
+      TimeToString((datetime)HistoryDealGetInteger(deal,DEAL_TIME),TIME_DATE|TIME_SECONDS),
+      _Symbol, sentry, stype,
+      DoubleToString(HistoryDealGetDouble(deal,DEAL_VOLUME),2),
+      DoubleToString(HistoryDealGetDouble(deal,DEAL_PRICE),g_digits),
+      DoubleToString(HistoryDealGetDouble(deal,DEAL_PROFIT),2),
+      DoubleToString(HistoryDealGetDouble(deal,DEAL_SWAP),2),
+      DoubleToString(HistoryDealGetDouble(deal,DEAL_COMMISSION),2),
+      HistoryDealGetString(deal,DEAL_COMMENT));
+   FileClose(h);
+  }
+
+//+------------------------------------------------------------------+
+//|  Trade transaction hook -> journal closed/opened deals           |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest    &request,
+                        const MqlTradeResult     &result)
+  {
+   if(trans.type!=TRADE_TRANSACTION_DEAL_ADD) return;
+   if(trans.deal==0) return;
+   LogDeal(trans.deal);
+  }
+
+//+------------------------------------------------------------------+
 //|  Init                                                            |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -1377,18 +1507,22 @@ int OnInit()
    trade.SetDeviationInPoints(InpSlippagePts);
    trade.SetTypeFillingBySymbol(_Symbol);
 
-   hADX=iADX(_Symbol,_Period,InpAdxPeriod);
+   hADX     = iADX(_Symbol,_Period,InpAdxPeriod);
+   hATRchop = iATR(_Symbol,_Period,14);          // cached for the chop filter
 
    g_equityPeak=AccountInfoDouble(ACCOUNT_EQUITY);
    g_dayStartBal=AccountInfoDouble(ACCOUNT_BALANCE);
 
-   Print("TUX_SD_Trend_EA initialised on ",_Symbol," ",EnumToString(_Period));
+   InitLog();
+
+   Print("TUX_SD_Trend_EA v1.10 initialised on ",_Symbol," ",EnumToString(_Period));
    return INIT_SUCCEEDED;
   }
 
 void OnDeinit(const int reason)
   {
-   if(hADX!=INVALID_HANDLE) IndicatorRelease(hADX);
+   if(hADX!=INVALID_HANDLE)     IndicatorRelease(hADX);
+   if(hATRchop!=INVALID_HANDLE) IndicatorRelease(hATRchop);
   }
 
 //+------------------------------------------------------------------+

@@ -142,9 +142,33 @@ lots (`RISK_FIXED_LOT`):
 - **Daily protection**: max daily loss $, max daily trades, max equity
   drawdown %.
 
-> **News filter:** MT5 has no built-in economic-calendar feed for EAs, so this
-> is a **manual time-blackout** window. A real auto-news filter needs an
-> external calendar source — tell me if you want that wired in.
+> **News filter — two modes (v1.10):**
+> - **Economic calendar** (`InpUseNewsCalendar`): uses MT5's native calendar to
+>   auto-block trading around events. `InpNewsMinImportance` (1=Low, 2=Moderate,
+>   3=High), `InpNewsBeforeMin`/`InpNewsAfterMin` set the blackout window, and
+>   `InpNewsThisSymbolOnly` limits it to the symbol's base/quote currencies.
+>   **Live only** — the calendar is *not* populated inside the Strategy Tester,
+>   so this filter is skipped there (it never blocks backtests).
+> - **Manual time-blackout** (`InpUseNewsBlackout`): a fixed HH:MM window, works
+>   everywhere including the tester. You can run both at once.
+
+## v1.10 changes
+- **Performance:** the warm-up series builders (stdev, highest/lowest, scale01)
+  were rewritten from O(N×window) to **O(N)** using a rolling sum and monotonic
+  deques. Output is **byte-identical** (verified) — just much faster, especially
+  on long histories / lower timeframes.
+- **Economic-calendar news filter** (see above).
+- **CSV trade journal** (`InpLogTrades`): every closed deal is appended to a CSV
+  in the terminal's *Common\\Files* folder (`TUX_EA_<symbol>_<magic>.csv` by
+  default) — time, in/out, type, volume, price, profit, swap, commission,
+  comment. Open it from MT5 → **File → Open Data Folder → ... → Common → Files**.
+- Cached the chop-filter ATR handle (no per-tick handle churn).
+
+> **Still on the roadmap (v2.0):** a fully *incremental* ML engine so the
+> **Strategy Tester runs O(N) instead of O(N²)**. Today the EA recomputes the
+> ML pass once per closed bar; that's fine live, but makes long optimizer runs
+> slow. For now, keep `InpMaxBars` modest (e.g. 2000–3000) and limit the test
+> date range when optimizing.
 
 ---
 
